@@ -9,6 +9,7 @@ class GameScene extends Phaser.Scene {
   private player?: Phaser.GameObjects.Rectangle
   private fontTexts: Phaser.GameObjects.Text[] = []
   private cardManager?: CardManager
+  private cursorSprite?: Phaser.GameObjects.Image
 
   constructor() {
     super({ key: 'GameScene' })
@@ -16,23 +17,32 @@ class GameScene extends Phaser.Scene {
 
   preload() {
     // Show loading message
-    this.add.text(427/2, 240/2, 'Loading fonts and assets...', {
+    this.add.text(Math.floor(427/2), Math.floor(240/2), 'Loading fonts and assets...', {
       fontSize: '16px',
       color: '#ffffff',
-      fontFamily: 'Arial'
+      fontFamily: 'Arial',
+      resolution: 1
     }).setOrigin(0.5)
     
     // Load card assets
     this.load.image('card-back', './src/assets/card.png')
+    this.load.image('card-flipped', './src/assets/card-back.png')
     this.load.spritesheet('card-art', './src/assets/card_art.png', {
       frameWidth: 37, // Card art area width
       frameHeight: 25 // Card art area height
     })
+    
+    // Load cursor image
+    this.load.image('cursor', './src/assets/cursor.png')
   }
 
   async create() {
     // Simple dark background
     this.cameras.main.setBackgroundColor('#1a1a2e')
+    
+    // Hide default cursor and create sprite-based cursor
+    this.input.setDefaultCursor('none')
+    this.createCursorSprite()
     
     // Create a simple player square
     this.player = this.add.rectangle(20, 20, 16, 16, 0x00ff41)
@@ -69,7 +79,7 @@ class GameScene extends Phaser.Scene {
     this.add.text(10, 10, 'Click cards to select, SPACE to play', {
       ...getFontStyle('retro', 6),
       color: '#ffffff'
-    })
+    }).setPosition(Math.floor(10), Math.floor(10))
   }
 
   createFontDemo() {
@@ -82,26 +92,28 @@ class GameScene extends Phaser.Scene {
     const lineHeight = 12
     
     // Add title (moved to not overlap with cards)
-    const title = this.add.text(320, 5, 'RETRO FONTS', {
+    const title = this.add.text(Math.floor(320), Math.floor(5), 'RETRO FONTS', {
       fontSize: '8px',
       color: '#00ff41',
-      fontFamily: 'Arial'
+      fontFamily: 'Arial',
+      resolution: 1
     }).setOrigin(0.5, 0)
     
     this.fontTexts.push(title)
 
     // Create demo text for each font (compact version)
     fontKeys.slice(0, 6).forEach((fontKey, index) => {
-      const y = startY + (index * lineHeight)
+      const y = Math.floor(startY + (index * lineHeight))
       const font = fonts[fontKey]
       
       try {
         // Create sample text using the font
         const sampleText = `${fontKey}: ABC123`
-        const textObj = this.add.text(250, y, sampleText, {
+        const textObj = this.add.text(Math.floor(250), y, sampleText, {
           fontFamily: font.family,
           fontSize: `${Math.min(font.size, 6)}px`,
-          color: '#ffffff'
+          color: '#ffffff',
+          resolution: 1
         })
         
         this.fontTexts.push(textObj)
@@ -110,10 +122,11 @@ class GameScene extends Phaser.Scene {
         console.warn(`Failed to create text with font ${fontKey}:`, error)
         
         // Fallback text
-        const fallbackText = this.add.text(250, y, `${fontKey}: [Loading...]`, {
+        const fallbackText = this.add.text(Math.floor(250), y, `${fontKey}: [Loading...]`, {
           fontSize: '6px',
           color: '#ff6666',
-          fontFamily: 'Arial'
+          fontFamily: 'Arial',
+          resolution: 1
         })
         
         this.fontTexts.push(fallbackText)
@@ -122,12 +135,30 @@ class GameScene extends Phaser.Scene {
   }
 
   createFallbackDemo() {
-    this.add.text(350, 50, 'Failed to load fonts', {
+    this.add.text(Math.floor(350), Math.floor(50), 'Failed to load fonts', {
       fontSize: '8px',
       color: '#ff6666',
       fontFamily: 'Arial',
-      align: 'center'
+      align: 'center',
+      resolution: 1
     }).setOrigin(0.5)
+  }
+
+  private createCursorSprite(): void {
+    // Create cursor sprite
+    this.cursorSprite = this.add.image(0, 0, 'cursor')
+    this.cursorSprite.setOrigin(0, 0) // Top-left origin for precise positioning
+    this.cursorSprite.setDepth(10000) // Always on top
+    
+    // Set up mouse tracking
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (this.cursorSprite) {
+        // Convert screen coordinates to game coordinates
+        const camera = this.cameras.main
+        this.cursorSprite.x = camera.scrollX + pointer.x / camera.zoom
+        this.cursorSprite.y = camera.scrollY + pointer.y / camera.zoom
+      }
+    })
   }
 
   update(time: number, delta: number) {

@@ -85,7 +85,15 @@ export function getFontStyle(fontKey: FontKey, customSize?: number): Phaser.Type
   return {
     fontFamily: font.family,
     fontSize: `${customSize || font.size}px`,
-    color: '#ffffff'
+    color: '#ffffff',
+    // Disable antialiasing for crisp pixel fonts
+    resolution: 1,
+    // Additional properties to ensure crisp rendering
+    stroke: '',
+    strokeThickness: 0,
+    // Force integer positioning
+    fixedWidth: 0,
+    fixedHeight: 0
   }
 }
 

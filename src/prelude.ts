@@ -1,0 +1,37 @@
+export enum RetroPalette {
+    Black       = "#000000",
+    DarkNavy    = "#2b335f",
+    Purple      = "#7e2072",
+    Teal        = "#19959c",
+    Maroon      = "#8b4852",
+    RoyalBlue   = "#395c98",
+    LightBlue   = "#a9c1ff",
+    LightGray   = "#eeeeee",
+    Magenta     = "#d4186c",
+    Orange      = "#d38441",
+    Yellow      = "#e9c35b",
+    Gray        = "#a3a3a3",
+    SeaGreen    = "#70c6a9",
+    Periwinkle  = "#7696de",
+    Pink        = "#ff9798",
+    Beige       = "#edc7b0"
+}
+
+export const P = [
+    RetroPalette.Black,
+    RetroPalette.DarkNavy,
+    RetroPalette.Purple,
+    RetroPalette.Teal,
+    RetroPalette.Maroon,
+    RetroPalette.RoyalBlue,
+    RetroPalette.LightBlue,
+    RetroPalette.LightGray,
+    RetroPalette.Magenta,
+    RetroPalette.Orange,
+    RetroPalette.Yellow,
+    RetroPalette.Gray,
+    RetroPalette.SeaGreen,
+    RetroPalette.Periwinkle,
+    RetroPalette.Pink,
+    RetroPalette.Beige,
+]

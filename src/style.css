@@ -28,6 +28,7 @@ body {
   image-rendering: -moz-crisp-edges;
   image-rendering: crisp-edges;
   background: #000;
+  cursor: none; /* Hide default cursor for sprite-based cursor */
 }
 
 #console-container {

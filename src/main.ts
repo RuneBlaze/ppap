@@ -3,6 +3,7 @@ import Phaser from 'phaser'
 import { fonts, getFontStyle, getAllFontKeys, loadFonts } from './fonts'
 import { CardManager } from './CardManager'
 import { exampleCards } from './cards'
+import { ShopScene } from './scenes/ShopScene'
 
 class GameScene extends Phaser.Scene {
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys
@@ -206,13 +207,13 @@ const scale = calculateScale()
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
-  width: 427,
-  height: 240,
+  width: 427, // DO NOT MODIFY -- we want to keep the game at 427x240
+  height: 240, // DO NOT MODIFY
   parent: 'game-container',
   backgroundColor: '#1a1a2e',
   pixelArt: true,
   antialias: false,
-  scene: [GameScene],
+  scene: [ShopScene],
   scale: {
     mode: Phaser.Scale.NONE,
     zoom: scale

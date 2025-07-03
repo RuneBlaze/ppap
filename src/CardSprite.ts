@@ -160,12 +160,12 @@ export class CardSprite extends Phaser.GameObjects.Container {
   
   // Mouse tracking and smooth movement (Godot-inspired)
   private TIME = 0
-  private mousePos = { x: 0, y: 0 }
+  // private mousePos = { x: 0, y: 0 }
   private velocity = { x: 0, y: 0 }
   private lastMousePos = { x: 0, y: 0 }
-  private oldPos = { x: 0, y: 0 }
+  // private oldPos = { x: 0, y: 0 }
   private oldPos2 = { x: 0, y: 0 }
-  private velDir = { x: 0, y: 0 }
+  // private velDir = { x: 0, y: 0 }
   private velDir2 = { x: 0, y: 0 }
   private currentRotation = 0
   private currentScale = 1
@@ -300,15 +300,15 @@ export class CardSprite extends Phaser.GameObjects.Container {
       
       this.lastMousePos = currentMousePos
       
-      // Update mouse position relative to card center
-      const cardCenter = {
-        x: this.x + CardSprite.CARD_WIDTH / 2,
-        y: this.y + CardSprite.CARD_HEIGHT / 2
-      }
-      this.mousePos = {
-        x: pointer.x - cardCenter.x,
-        y: pointer.y - cardCenter.y
-      }
+      // Mouse position tracking for potential future use
+      // const cardCenter = {
+      //   x: this.x + CardSprite.CARD_WIDTH / 2,
+      //   y: this.y + CardSprite.CARD_HEIGHT / 2
+      // }
+      // this.mousePos = {
+      //   x: pointer.x - cardCenter.x,
+      //   y: pointer.y - cardCenter.y
+      // }
     })
   }
   
@@ -332,7 +332,7 @@ export class CardSprite extends Phaser.GameObjects.Container {
     }
   }
   
-  private onDrag(pointer: Phaser.Input.Pointer): void {
+  private onDrag(_pointer: Phaser.Input.Pointer): void {
     if (!this.isDragging) return
     
     // Smooth following like in Godot (handled in update method)
@@ -650,7 +650,7 @@ export class CardSprite extends Phaser.GameObjects.Container {
       // Scale up when dragging
       this.currentScale = this.lerp(this.currentScale, 1.05, 0.25)
       
-      this.oldPos = { x: this.x, y: this.y }
+      // this.oldPos = { x: this.x, y: this.y }
       this.velocity.x = 0
       this.velocity.y = 0
     } else {

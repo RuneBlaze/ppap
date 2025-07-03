@@ -13,6 +13,7 @@ import capitalHillUrl from './assets/fonts/Capital_Hill.ttf?url'
 import willowBranchUrl from './assets/fonts/Willow_Branch.ttf?url'
 import nobleBlabberUrl from './assets/fonts/Noble_Blabber.ttf?url'
 import tomorrowNightUrl from './assets/fonts/Tomorrow_Night.ttf?url'
+import everydayStandardUrl from './assets/fonts/Everyday_Standard.ttf?url'
 
 export const fonts = {
   retro: {
@@ -50,6 +51,12 @@ export const fonts = {
     path: tomorrowNightUrl,
     size: 8,
     family: 'TomorrowNight'
+  },
+  everydayStandard: {
+    key: 'everyday-standard-font',
+    path: everydayStandardUrl,
+    size: 6,
+    family: 'EverydayStandard'
   }
 } as const
 

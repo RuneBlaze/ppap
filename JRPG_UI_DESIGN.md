@@ -8,7 +8,7 @@
 ├─────────────────┤
 │ Component Layer │ ← Reusable UI blocks (Menu, Dialog, ButtonGroup)
 ├─────────────────┤
-│  Layout System  │ ← Positioning, constraints, responsive sizing
+│  Layout System  │ ← Positioning, constraints, responsive (note! the game canvas will not change size, but different panels will exist) sizing
 ├─────────────────┤
 │   State Layer   │ ← Cursor, selection, navigation, transitions
 ├─────────────────┤
@@ -72,7 +72,7 @@ interface UIPrimitive {
 - `Panel` - Grouped content sections with optional collapsing
   - *Depends on: Container, Button*
 - `InputField` - Text entry with cursor and validation
-  - *Depends on: TextBlock, Cursor*
+  - *Depends on: TextBlock, Cursor* (DEFERRED)
 
 **⚪ Zero External Dependencies (Pure Primitives)**
 - `Window` - Base bordered container (RPG Maker windowskin)
@@ -395,3 +395,92 @@ class StatusWindow extends Window {
 - Leverages `fonts.ts` for consistent text rendering
 - Maintains pixel-perfect integer positioning
 - Builds on existing WindowSkin patterns for consistent visual style
+
+## Lessons from Current ShopScene Implementation
+
+### Critical Issues to Avoid
+
+**❌ Imperative Menu Management**
+```typescript
+// BAD: Manual lifecycle management
+private mainMenu: Menu | null = null;
+private showMainMenu() {
+  if (this.mainMenu) {
+    this.mainMenu.activate();
+    return;
+  }
+  this.mainMenu = new Menu(this, { /* config */ });
+}
+```
+
+**✅ Declarative Navigation Stack**
+```typescript
+// GOOD: Reactive navigation controller
+const navigationController = new NavigationController();
+navigationController.pushScene('shop-main', {
+  items: [
+    { key: 'buy', text: 'Buy', scene: 'shop-buy' },
+    { key: 'sell', text: 'Sell', scene: 'shop-sell' }
+  ]
+});
+```
+
+**❌ No Keyboard Navigation**
+```typescript
+// BAD: Mouse-only interactions
+onPointerUp: () => this.toggleMainMenu()
+```
+
+**✅ Keyboard-First Design**
+```typescript
+// GOOD: Keyboard navigation with mouse fallback
+const menu = new Menu({
+  items: menuItems,
+  navigation: {
+    keys: ['ArrowUp', 'ArrowDown', 'Enter', 'Escape'],
+    wrap: true,
+    onActivate: (item) => navigationController.navigate(item.scene)
+  }
+});
+```
+
+**❌ Scattered State Management**
+```typescript
+// BAD: Multiple nullable references
+private buyMenu: Menu | null = null;
+private sellMenu: Menu | null = null;
+private hideAllMenus() {
+  if (this.buyMenu) this.buyMenu.destroy();
+  if (this.sellMenu) this.sellMenu.destroy();
+  // ... manual cleanup for each menu
+}
+```
+
+**✅ Centralized Navigation State**
+```typescript
+// GOOD: Single source of truth
+class NavigationController {
+  private sceneStack: NavigationContext[] = [];
+  
+  navigate(sceneKey: string): void {
+    const context = this.createScene(sceneKey);
+    this.sceneStack.push(context);
+    this.activateCurrentScene();
+  }
+  
+  goBack(): void {
+    if (this.sceneStack.length > 1) {
+      this.sceneStack.pop()?.cleanup();
+      this.activateCurrentScene();
+    }
+  }
+}
+```
+
+### Key Improvements Needed
+
+1. **Reactive State Management**: UI should automatically update when navigation state changes
+2. **Keyboard-First Navigation**: Arrow keys, Enter/Escape should be primary interaction method
+3. **Declarative Scene Definitions**: Define UI structure in DSL-like code, not imperatively everywhere.
+4. **Centralized Focus Management**: Single navigation controller handles all focus transitions
+5. **Automatic Cleanup**: Component lifecycle should be managed by the framework, not manually

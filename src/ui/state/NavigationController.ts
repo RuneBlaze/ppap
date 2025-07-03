@@ -1,11 +1,3 @@
-import { Cursor } from './Cursor';
-
-type Focusable = {
-  setFocus(isFocused: boolean): void;
-  options: {
-    onPointerUp?: (component: Focusable) => void;
-  };
-} & Phaser.GameObjects.GameObject;
 
 /**
  * Manages keyboard navigation state for a list of elements.
@@ -21,8 +13,11 @@ export class NavigationController extends Phaser.Events.EventEmitter {
   private keydownListener: (event: KeyboardEvent) => void;
   private active = true;
 
-  constructor(private scene: Phaser.Scene) {
+  private scene: Phaser.Scene;
+
+  constructor(scene: Phaser.Scene) {
     super();
+    this.scene = scene;
     this.keydownListener = this.handleKeyDown.bind(this);
     this.scene.input.keyboard?.on('keydown', this.keydownListener);
   }

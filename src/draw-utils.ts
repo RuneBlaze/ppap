@@ -28,97 +28,79 @@ export interface GaugeOptions {
   fontKey?: FontKey;
   showValue?: boolean;
   showMaxValue?: boolean;
-  dithering?: 'floyd-steinberg' | 'ordered' | 'none';
   quantize?: boolean;
 }
 
 export interface DitherOptions {
   intensity?: number;
   paletteColors?: string[];
-  pattern?: 'bayer' | 'blue-noise' | 'simple';
 }
 
-// Floyd-Steinberg dithering shader with GPU-friendly approximation
-class FloydSteinbergDitherShader extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
+// Stylized dithering shader with GPU-friendly approximation
+class StylizedDitherShader extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
   private _intensity: number = 1.0;
   private _resolution: { width: number; height: number } = { width: 800, height: 600 };
 
   constructor(game: Phaser.Game) {
     super({
       game,
-      name: 'FloydSteinbergDither',
+      name: 'StylizedDither',
       renderTarget: true,
       fragShader: `
 precision mediump float;
 
 uniform sampler2D uMainSampler;
-uniform float intensity;
-uniform vec2 resolution;
-uniform vec3 paletteColors[32];
+uniform float     intensity;        // 0 → off, 1 → full dither
+uniform vec2      resolution;       // framebuffer size in pixels
+uniform vec3      paletteColors[32];
 
 varying vec2 outTexCoord;
 
-// Convert hex color to vec3
-vec3 quantizeToNearestPalette(vec3 color) {
-    float minDistance = 999.0;
-    vec3 nearestColor = paletteColors[0];
-    
-    for (int i = 0; i < 32; i++) {
-        vec3 paletteColor = paletteColors[i];
-        float distance = length(color - paletteColor);
-        if (distance < minDistance) {
-            minDistance = distance;
-            nearestColor = paletteColor;
-        }
+/* -------- nearest-colour quantiser -------------------------------------- */
+vec3 quantizeToNearestPalette(vec3 c)
+{
+    float bestDist = 999.0;
+    vec3  bestCol  = paletteColors[0];
+
+    // fixed-length loop so the compiler can unroll
+    for (int i = 0; i < 32; ++i)
+    {
+        vec3 p = paletteColors[i];
+        float d = length(c - p);      // Euclidean distance in RGB
+        if (d < bestDist) { bestDist = d; bestCol = p; }
     }
-    
-    return nearestColor;
+    return bestCol;
 }
 
-// Pseudo-random number generator for dithering
-float random(vec2 st) {
-    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+/* -------- 4×4 Bayer threshold, arithmetic version (0-0.9375) ------------ */
+/* Formula: threshold = (4*x + 5*y) mod 16  / 16
+   This produces the classic 4×4 Bayer pattern reordered, but any
+   permutation of 0-15 works equally well for ordered dithering.           */
+float bayer4(vec2 pixPos)
+{
+    vec2 p = mod(pixPos, 4.0);              // pixel inside the 4×4 tile
+    float v = mod(4.0 * p.x + 5.0 * p.y, 16.0);
+    return v / 16.0;                        // 0 … 0.9375
 }
 
-// Floyd-Steinberg error diffusion approximation
-vec3 floydSteinbergDither(vec2 uv, vec3 color) {
-    vec2 pixelSize = 1.0 / resolution;
-    
-    // Sample neighboring pixels for error approximation
-    vec3 rightPixel = texture2D(uMainSampler, uv + vec2(pixelSize.x, 0.0)).rgb;
-    vec3 belowPixel = texture2D(uMainSampler, uv + vec2(0.0, pixelSize.y)).rgb;
-    vec3 diagonalPixel = texture2D(uMainSampler, uv + vec2(pixelSize.x, pixelSize.y)).rgb;
-    
-    // Calculate quantization error
-    vec3 quantized = quantizeToNearestPalette(color);
-    vec3 error = color - quantized;
-    
-    // Distribute error to neighboring pixels (simplified)
-    float errorWeight = intensity * 0.5;
-    vec3 distributedError = error * errorWeight;
-    
-    // Add distributed error back to the quantized color
-    vec3 finalColor = quantized + distributedError * (
-        random(uv) * 0.4375 +  // Current pixel gets 7/16 of error
-        random(uv + vec2(1.0, 0.0)) * 0.1875 +  // Right pixel gets 3/16
-        random(uv + vec2(0.0, 1.0)) * 0.3125 +  // Below pixel gets 5/16
-        random(uv + vec2(1.0, 1.0)) * 0.0625    // Diagonal pixel gets 1/16
-    );
-    
-    return mix(color, quantizeToNearestPalette(finalColor), intensity);
-}
+void main()
+{
+    vec2 pixPos = outTexCoord * resolution;
+    vec4 src    = texture2D(uMainSampler, outTexCoord);
 
-void main() {
-    vec2 uv = outTexCoord;
-    vec4 color = texture2D(uMainSampler, uv);
-    
-    if (color.a < 0.1) {
-        gl_FragColor = color;
+    if (src.a < 0.1) {                      // keep near-transparent texels
+        gl_FragColor = src;
         return;
     }
-    
-    vec3 ditheredColor = floydSteinbergDither(uv, color.rgb);
-    gl_FragColor = vec4(ditheredColor, color.a);
+
+    /* --- ordered-dither bias --------------------------------------------- */
+    float t = bayer4(pixPos);               // 0-1 threshold
+    const float scale = 1.0 / 255.0;        // ±1 step in 8-bit space
+    vec3  nudged = src.rgb + (t - 0.5) * (2.0 * scale * intensity);
+
+    /* --- quantise & blend ------------------------------------------------- */
+    vec3 quantised = quantizeToNearestPalette(clamp(nudged, 0.0, 1.0));
+    gl_FragColor   = vec4(mix(src.rgb, quantised, intensity), src.a);
 }
 `
     });
@@ -150,109 +132,6 @@ void main() {
   }
 }
 
-// Ordered dithering shader (more GPU-friendly)
-class OrderedDitherShader extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
-  private _intensity: number = 1.0;
-  private _resolution: { width: number; height: number } = { width: 800, height: 600 };
-
-  constructor(game: Phaser.Game) {
-    super({
-      game,
-      name: 'OrderedDither',
-      renderTarget: true,
-      fragShader: `
-precision mediump float;
-
-uniform sampler2D uMainSampler;
-uniform float intensity;
-uniform vec2 resolution;
-uniform vec3 paletteColors[32];
-
-varying vec2 outTexCoord;
-
-// Bayer dithering matrix 4x4
-float bayerMatrix[16];
-
-void initBayerMatrix() {
-    bayerMatrix[0] = 0.0;    bayerMatrix[1] = 8.0;    bayerMatrix[2] = 2.0;    bayerMatrix[3] = 10.0;
-    bayerMatrix[4] = 12.0;   bayerMatrix[5] = 4.0;    bayerMatrix[6] = 14.0;   bayerMatrix[7] = 6.0;
-    bayerMatrix[8] = 3.0;    bayerMatrix[9] = 11.0;   bayerMatrix[10] = 1.0;   bayerMatrix[11] = 9.0;
-    bayerMatrix[12] = 15.0;  bayerMatrix[13] = 7.0;   bayerMatrix[14] = 13.0;  bayerMatrix[15] = 5.0;
-}
-
-vec3 quantizeToNearestPalette(vec3 color) {
-    float minDistance = 999.0;
-    vec3 nearestColor = paletteColors[0];
-    
-    for (int i = 0; i < 32; i++) {
-        vec3 paletteColor = paletteColors[i];
-        float distance = length(color - paletteColor);
-        if (distance < minDistance) {
-            minDistance = distance;
-            nearestColor = paletteColor;
-        }
-    }
-    
-    return nearestColor;
-}
-
-vec3 orderedDither(vec2 uv, vec3 color) {
-    initBayerMatrix();
-    
-    vec2 pixelPos = uv * resolution;
-    int x = int(mod(pixelPos.x, 4.0));
-    int y = int(mod(pixelPos.y, 4.0));
-    int index = y * 4 + x;
-    
-    float threshold = bayerMatrix[index] / 16.0;
-    
-    // Apply dithering threshold
-    vec3 ditheredColor = color + (threshold - 0.5) * intensity * 0.1;
-    
-    return quantizeToNearestPalette(ditheredColor);
-}
-
-void main() {
-    vec2 uv = outTexCoord;
-    vec4 color = texture2D(uMainSampler, uv);
-    
-    if (color.a < 0.1) {
-        gl_FragColor = color;
-        return;
-    }
-    
-    vec3 ditheredColor = orderedDither(uv, color.rgb);
-    gl_FragColor = vec4(mix(color.rgb, ditheredColor, intensity), color.a);
-}
-`
-    });
-  }
-
-  onPreRender(): void {
-    this.set1f('intensity', this._intensity);
-    this.set2f('resolution', this._resolution.width, this._resolution.height);
-    
-    // Set palette colors
-    const paletteColors = DrawUtils.getPaletteColorsForShader();
-    this.set3fv('paletteColors', new Float32Array(paletteColors));
-  }
-
-  get intensity(): number {
-    return this._intensity;
-  }
-
-  set intensity(value: number) {
-    this._intensity = value;
-  }
-
-  get resolution(): { width: number; height: number } {
-    return this._resolution;
-  }
-
-  set resolution(value: { width: number; height: number }) {
-    this._resolution = value;
-  }
-}
 
 export class DrawUtils {
   static readonly ICONS_KEY = 'icons';
@@ -324,7 +203,6 @@ export class DrawUtils {
       fontKey = 'retro',
       showValue = true,
       showMaxValue = false,
-      dithering = 'none',
       quantize = true
     } = options;
 
@@ -339,54 +217,15 @@ export class DrawUtils {
 
     // Create gradient for gauge fill
     if (fillWidth > 0) {
-      if (dithering === 'none') {
-        const gradientSteps = Math.max(1, fillWidth);
-        const gradientColors = this.createGradientColors(gradientStart, gradientEnd, gradientSteps, quantize);
-        
-        // Draw gradient fill pixel by pixel for retro look
-        for (let i = 0; i < fillWidth; i++) {
-          const colorIndex = Math.floor((i / fillWidth) * (gradientColors.length - 1));
-          const color = gradientColors[colorIndex];
-          graphics.fillStyle(Phaser.Display.Color.HexStringToColor(color).color);
-          graphics.fillRect(x + 1 + i, y + 1, 1, height - 2);
-        }
-      } else {
-        // Create gradient imagedata for dithering
-        const fillHeight = height - 2;
-        const imageData = new Uint8ClampedArray(fillWidth * fillHeight * 4);
-        
-        // Fill imagedata with gradient
-        for (let px = 0; px < fillWidth; px++) {
-          const t = px / (fillWidth - 1);
-          const interpolated = ColorUtils.interpolateOklab(gradientStart, gradientEnd, t);
-          
-          for (let py = 0; py < fillHeight; py++) {
-            const i = (py * fillWidth + px) * 4;
-            imageData[i] = interpolated.r;
-            imageData[i + 1] = interpolated.g;
-            imageData[i + 2] = interpolated.b;
-            imageData[i + 3] = 255;
-          }
-        }
-        
-        // Apply dithering
-        const ditheredData = dithering === 'floyd-steinberg' ? 
-          ColorUtils.ditherFloydSteinberg(imageData, fillWidth, fillHeight) :
-          ColorUtils.ditherOrdered(imageData, fillWidth, fillHeight);
-        
-        // Draw dithered pixels
-        for (let px = 0; px < fillWidth; px++) {
-          for (let py = 0; py < fillHeight; py++) {
-            const i = (py * fillWidth + px) * 4;
-            const r = ditheredData[i];
-            const g = ditheredData[i + 1];
-            const b = ditheredData[i + 2];
-            
-            const hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-            graphics.fillStyle(Phaser.Display.Color.HexStringToColor(hexColor).color);
-            graphics.fillRect(x + 1 + px, y + 1 + py, 1, 1);
-          }
-        }
+      const gradientSteps = Math.max(1, fillWidth);
+      const gradientColors = this.createGradientColors(gradientStart, gradientEnd, gradientSteps, quantize);
+      
+      // Draw gradient fill pixel by pixel for retro look
+      for (let i = 0; i < fillWidth; i++) {
+        const colorIndex = Math.floor((i / fillWidth) * (gradientColors.length - 1));
+        const color = gradientColors[colorIndex];
+        graphics.fillStyle(Phaser.Display.Color.HexStringToColor(color).color);
+        graphics.fillRect(x + 1 + i, y + 1, 1, height - 2);
       }
     }
 
@@ -420,28 +259,15 @@ export class DrawUtils {
    * @param x - X position
    * @param y - Y position  
    * @param iconIndex - Index of the icon in the spritesheet
-   * @param applyDithering - Whether to apply Floyd-Steinberg dithering (default: true)
-   * @param ditherOptions - Options for dithering effect
    * @returns A new `Phaser.GameObjects.Image` instance for the icon.
    */
   static drawIcon(
     scene: Phaser.Scene, 
     x: number, 
     y: number, 
-    iconIndex: number, 
-    applyDithering: boolean = true,
-    ditherOptions: DitherOptions = {}
+    iconIndex: number
   ): Phaser.GameObjects.Image {
     const icon = scene.add.image(x, y, this.ICONS_KEY, iconIndex);
-    
-    if (applyDithering) {
-      // Ensure dithering shaders are registered
-      this.registerDitherShaders(scene.game);
-      
-      // Apply Floyd-Steinberg dithering by default
-      this.applyFloydSteinbergDither(icon, ditherOptions);
-    }
-    
     return icon;
   }
 
@@ -511,29 +337,28 @@ export class DrawUtils {
     }
   }
 
-  // Register dithering shaders with the renderer
-  static registerDitherShaders(game: Phaser.Game): void {
+  // Register stylized dithering shader with the renderer
+  static registerStylizedDitherShader(game: Phaser.Game): void {
     const renderer = game.renderer;
     
     if (renderer.type === Phaser.WEBGL) {
       const webglRenderer = renderer as Phaser.Renderer.WebGL.WebGLRenderer;
       
       try {
-        // Register shaders using the pipeline manager's class registration method
-        webglRenderer.pipelines.addPostPipeline('FloydSteinbergDither', FloydSteinbergDitherShader);
-        webglRenderer.pipelines.addPostPipeline('OrderedDither', OrderedDitherShader);
+        // Register shader using the pipeline manager's class registration method
+        webglRenderer.pipelines.addPostPipeline('StylizedDither', StylizedDitherShader);
         
-        console.log('Dithering shaders registered successfully');
+        console.log('Stylized dithering shader registered successfully');
       } catch (error) {
-        console.error('Failed to register dithering shaders:', error);
+        console.error('Failed to register stylized dithering shader:', error);
       }
     } else {
-      console.warn('WebGL renderer not available for dithering shaders');
+      console.warn('WebGL renderer not available for stylized dithering shader');
     }
   }
 
-  // Apply Floyd-Steinberg dithering to a sprite or image
-  static applyFloydSteinbergDither(
+  // Apply stylized dithering to a sprite or image
+  static applyStylizedDither(
     gameObject: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite,
     options: DitherOptions = {}
   ): boolean {
@@ -541,18 +366,18 @@ export class DrawUtils {
     const renderer = gameObject.scene.game.renderer;
     
     if (renderer.type !== Phaser.WEBGL) {
-      console.warn('Dithering shaders require WebGL renderer');
+      console.warn('Stylized dithering shader requires WebGL renderer');
       return false;
     }
 
     try {
       // Apply the post-pipeline to the game object
-      gameObject.setPostPipeline('FloydSteinbergDither');
+      gameObject.setPostPipeline('StylizedDither');
 
       // Get the shader instance and set properties
-      const shader = gameObject.getPostPipeline('FloydSteinbergDither') as FloydSteinbergDitherShader;
+      const shader = gameObject.getPostPipeline('StylizedDither') as StylizedDitherShader;
       if (!shader) {
-        console.warn('FloydSteinbergDither shader not registered. Call registerDitherShaders() first.');
+        console.warn('StylizedDither shader not registered. Call registerStylizedDitherShader() first.');
         return false;
       }
       
@@ -562,71 +387,32 @@ export class DrawUtils {
       
       return true;
     } catch (error) {
-      console.error('Failed to apply Floyd-Steinberg dithering:', error);
+      console.error('Failed to apply stylized dithering:', error);
       return false;
     }
   }
 
-  // Apply ordered dithering to a sprite or image
-  static applyOrderedDither(
-    gameObject: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite,
-    options: DitherOptions = {}
-  ): boolean {
-    const { intensity = 1.0 } = options;
-    const renderer = gameObject.scene.game.renderer;
-    
-    if (renderer.type !== Phaser.WEBGL) {
-      console.warn('Dithering shaders require WebGL renderer');
-      return false;
-    }
 
-    try {
-      // Apply the post-pipeline to the game object
-      gameObject.setPostPipeline('OrderedDither');
-      
-      // Get the shader instance and set properties
-      const shader = gameObject.getPostPipeline('OrderedDither') as OrderedDitherShader;
-      if (!shader) {
-        console.warn('OrderedDither shader not registered. Call registerDitherShaders() first.');
-        return false;
-      }
-      
-      // Set shader properties - uniforms will be set in onPreRender
-      shader.intensity = intensity;
-      shader.resolution = { width: gameObject.width, height: gameObject.height };
-      
-      return true;
-    } catch (error) {
-      console.error('Failed to apply ordered dithering:', error);
-      return false;
-    }
-  }
-
-  // Remove dithering from a game object
-  static removeDithering(gameObject: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite): void {
+  // Remove stylized dithering from a game object
+  static removeStylizedDithering(gameObject: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite): void {
     gameObject.resetPipeline();
   }
 
-  // Apply dithering to all sprites in a container or group
-  static applyDitherToGroup(
+  // Apply stylized dithering to all sprites in a container or group
+  static applyStylizedDitherToGroup(
     group: Phaser.GameObjects.Container | Phaser.GameObjects.Group,
-    ditherType: 'floyd-steinberg' | 'ordered' = 'ordered',
     options: DitherOptions = {}
   ): void {
-    const applyFn = ditherType === 'floyd-steinberg' ? 
-      this.applyFloydSteinbergDither.bind(this) : 
-      this.applyOrderedDither.bind(this);
-
     if (group instanceof Phaser.GameObjects.Container) {
       group.each((child: Phaser.GameObjects.GameObject) => {
         if (child instanceof Phaser.GameObjects.Image || child instanceof Phaser.GameObjects.Sprite) {
-          applyFn(child, options);
+          this.applyStylizedDither(child, options);
         }
       });
     } else if (group instanceof Phaser.GameObjects.Group) {
       group.children.entries.forEach((child: Phaser.GameObjects.GameObject) => {
         if (child instanceof Phaser.GameObjects.Image || child instanceof Phaser.GameObjects.Sprite) {
-          applyFn(child, options);
+          this.applyStylizedDither(child, options);
         }
       });
     }

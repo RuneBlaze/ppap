@@ -133,17 +133,17 @@ export class ShopScene extends BaseScene {
 
   private setupSceneDithering() {
     // Register dithering shaders with the game
-    DrawUtils.registerDitherShaders(this.game);
+    DrawUtils.registerStylizedDitherShader(this.game);
     
     // Apply Floyd-Steinberg dithering to the main camera (entire scene)
     const mainCamera = this.cameras.main;
     
     try {
       // Apply the post-pipeline to the camera
-      mainCamera.setPostPipeline('FloydSteinbergDither');
+      mainCamera.setPostPipeline('StylizedDither');
       
       // Get the shader instance and configure it
-      const shader = mainCamera.getPostPipeline('FloydSteinbergDither') as any;
+      const shader = mainCamera.getPostPipeline('StylizedDither') as any;
       if (shader) {
         // Set intensity to 1.0 for default dithering effect
         shader.intensity = 1.0;
@@ -152,9 +152,9 @@ export class ShopScene extends BaseScene {
           height: mainCamera.height 
         };
         
-        console.log('Floyd-Steinberg dithering applied to entire scene');
+        console.log('Stylized dithering applied to entire scene');
       } else {
-        console.warn('FloydSteinbergDither shader not found after registration');
+        console.warn('StylizedDither shader not found after registration');
       }
     } catch (error) {
       console.error('Failed to apply scene dithering:', error);
@@ -212,8 +212,8 @@ export class ShopScene extends BaseScene {
     if (this.ditheringEnabled) {
       // Re-enable dithering
       try {
-        mainCamera.setPostPipeline('FloydSteinbergDither');
-        const shader = mainCamera.getPostPipeline('FloydSteinbergDither') as any;
+        mainCamera.setPostPipeline('StylizedDither');
+        const shader = mainCamera.getPostPipeline('StylizedDither') as any;
         if (shader) {
           shader.intensity = 1.0;
           shader.resolution = { 
@@ -389,13 +389,12 @@ export class ShopScene extends BaseScene {
       maxValue: 100,
       gradientStart: Palette.BLACK,
       gradientEnd: Palette.WHITE,
-      dithering: 'none',
       quantize: false,
       borderColor: Palette.WHITE
     });
 
     for (let i = 0; i < 4; i ++) {
-      DrawUtils.drawIcon(this, 10 + i * 16, 10, 100 + i, false);
+      DrawUtils.drawIcon(this, 10 + i * 16, 10, 100 + i);
     }
   }
 
@@ -700,7 +699,7 @@ export class ShopScene extends BaseScene {
     for (let row = 0; row < 4; row++) {
       for (let col = 0; col < 4; col++) {
         const iconIndex = 12 + row * 4 + col;
-        DrawUtils.drawIcon(this, 175 + col * 16, 135 + row * 16, iconIndex, true);
+        DrawUtils.drawIcon(this, 175 + col * 16, 135 + row * 16, iconIndex);
       }
     }
     

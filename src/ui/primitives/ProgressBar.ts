@@ -16,7 +16,6 @@ export interface ProgressBarOptions {
   fontKey?: FontKey;
   showValue?: boolean;
   showMaxValue?: boolean;
-  dithering?: 'floyd-steinberg' | 'ordered' | 'none';
   animationDuration?: number;
 }
 
@@ -159,7 +158,6 @@ export class ProgressBar extends Phaser.GameObjects.Container {
       fontKey: this.options.fontKey ?? 'retro',
       showValue: this.options.showValue ?? false,
       showMaxValue: this.options.showMaxValue ?? false,
-      dithering: this.options.dithering ?? 'none'
     };
 
     this.textLabel = DrawUtils.drawGauge(this.scene, this.graphics, gaugeOptions);

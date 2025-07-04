@@ -1,29 +1,23 @@
 import { DrawUtils } from "../draw-utils";
 import { Palette } from "../palette";
 import { Menu, type MenuItem } from "../ui/components/Menu";
-import { Container } from "../ui/layout/Container";
-import { Button } from "../ui/primitives/Button";
 import { ProgressBar } from "../ui/primitives/ProgressBar";
 import { TextBlock } from "../ui/primitives/TextBlock";
 import { Window } from "../ui/primitives/Window";
-import { FocusableMenu } from "../ui/state/FocusableWrappers";
-import { FocusManager, type FocusToken } from "../ui/state/FocusManager";
+import { FocusableMenu } from "../ui/state/SimpleFocusableWrappers";
+import { GenericFocusStateMachine } from "../ui/state/GenericFocusStateMachine";
+import { battleFocusConfig, type BattleFocusState, type BattleFocusEvent } from "./BattleFocusConfig";
 import { BaseScene } from "./BaseScene";
 
-enum BattlePhase {
-	SELECTING_ACTIONS = "selecting_actions",
-	RESOLVING_ACTIONS = "resolving_actions",
-	BATTLE_END = "battle_end",
-}
 
-enum ActionType {
+export enum ActionType {
 	ATTACK = "attack",
 	DEFEND = "defend",
 	SKILL = "skill",
 	ITEM = "item",
 }
 
-interface Character {
+export interface Character {
 	id: string;
 	name: string;
 	maxHP: number;
@@ -36,7 +30,7 @@ interface Character {
 	selectedAction?: BattleAction;
 }
 
-interface BattleAction {
+export interface BattleAction {
 	type: ActionType;
 	skillId?: string;
 	itemId?: string;
@@ -45,7 +39,7 @@ interface BattleAction {
 	healing?: number;
 }
 
-interface Skill {
+export interface Skill {
 	id: string;
 	name: string;
 	mpCost: number;
@@ -55,13 +49,10 @@ interface Skill {
 }
 
 export class BattleScene extends BaseScene {
-	private focusManager: FocusManager | null = null;
-	private currentPhase: BattlePhase = BattlePhase.SELECTING_ACTIONS;
-
+	private focusManager!: GenericFocusStateMachine<BattleFocusState, BattleFocusEvent>;
 	// Character data
 	private playerParty: Character[] = [];
 	private enemyParty: Character[] = [];
-	private currentCharacterIndex: number = 0;
 	private turnOrder: Character[] = [];
 	private turnIndex: number = 0;
 
@@ -69,23 +60,6 @@ export class BattleScene extends BaseScene {
 	private actionMenu: Menu | null = null;
 	private skillMenu: Menu | null = null;
 	private targetMenu: Menu | null = null;
-	private focusableActionMenu: FocusableMenu | null = null;
-	private focusableSkillMenu: FocusableMenu | null = null;
-	private focusableTargetMenu: FocusableMenu | null = null;
-	private actionMenuToken: FocusToken | null = null;
-	private skillMenuToken: FocusToken | null = null;
-	private targetMenuToken: FocusToken | null = null;
-
-	// Current action being built
-	private pendingAction: Partial<BattleAction> | null = null;
-	private currentActingCharacter: Character | null = null;
-
-	// UI Windows
-	private actionWindow: Window | null = null;
-	private skillWindow: Window | null = null;
-	private targetWindow: Window | null = null;
-	private statusWindow: Window | null = null;
-	private messageWindow: Window | null = null;
 
 	// Character display elements
 	private playerHPBars: ProgressBar[] = [];
@@ -124,9 +98,7 @@ export class BattleScene extends BaseScene {
 		},
 	];
 
-	// Animation and popup space
-	private animationContainer: Container | null = null;
-	private popupContainer: Container | null = null;
+	// Animation and popup space (removed for now)
 
 	constructor() {
 		super("BattleScene");
@@ -137,20 +109,49 @@ export class BattleScene extends BaseScene {
 	}
 
 	protected createScene() {
-		this.initializeFocusManager();
 		this.initializeBattleData();
 		this.createUI();
+		this.initializeFocusManager(); // Must be after UI is created
 		this.startBattle();
 	}
 
 	private initializeFocusManager() {
-		this.focusManager = new FocusManager(this);
+		this.focusManager = new GenericFocusStateMachine(this, battleFocusConfig);
 
-		this.focusManager.on("focusChanged", (event: any) => {
+		this.focusManager.on("stateChanged", (event: { oldState: BattleFocusState, newState: BattleFocusState, event: BattleFocusEvent }) => {
 			console.log(
-				`[${event.layer}] Focus changed: ${event.oldName || "none"} → ${event.newName || "none"}`,
+				`Focus state changed: ${event.oldState.id} → ${event.newState.id} via ${event.event.type}`,
 			);
+
+			// If we have just finished selecting an action and are now idle, advance the turn.
+			if (event.newState.id === 'idle' && (event.event.type === 'confirmAction' || event.event.type === 'selectTarget')) {
+				this.turnIndex++;
+				this.processNextCharacter();
+			}
 		});
+
+		// Register components and their lifecycle hooks
+		this.focusManager.registerComponent(
+			'actionMenu',
+			new FocusableMenu(this.createActionMenu()),
+			(state) => this.showActionMenu(state as BattleFocusState & { id: 'actionMenu' }),
+			() => this.hideActionMenu()
+		);
+
+		this.focusManager.registerComponent(
+			'skillMenu',
+			new FocusableMenu(this.createSkillMenu()),
+			(state) => this.showSkillMenu(state as BattleFocusState & { id: 'skillMenu' }),
+			() => this.hideSkillMenu()
+		);
+		
+		this.focusManager.registerComponent(
+			'targetMenu',
+			new FocusableMenu(this.createTargetMenu()),
+			(state) => this.showTargetMenu(state as BattleFocusState & { id: 'targetMenu' }),
+			() => this.hideTargetMenu()
+		);
+
 	}
 
 	private initializeBattleData() {
@@ -205,6 +206,11 @@ export class BattleScene extends BaseScene {
 				isAlive: true,
 			},
 		];
+
+		this.turnOrder = [...this.playerParty, ...this.enemyParty]
+			.filter((char) => char.isAlive)
+			.sort((a, b) => b.speed - a.speed);
+		this.turnIndex = 0;
 	}
 
 	private createUI() {
@@ -218,7 +224,7 @@ export class BattleScene extends BaseScene {
 	private createBattleLayout() {
 		// Battle background
 		const graphics = this.add.graphics();
-		graphics.fillStyle(Palette.DARK_BLUE);
+		graphics.fillStyle(Palette.BLUE.num);
 		graphics.fillRect(0, 0, 427, 240);
 
 		// Add some basic battle environment
@@ -227,13 +233,13 @@ export class BattleScene extends BaseScene {
 			y: 20,
 			text: "Battle Scene - Wolf RPG Style",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 	}
 
 	private createCharacterDisplay() {
 		// Player party display (left side)
-		this.statusWindow = new Window(this, {
+		new Window(this, {
 			x: 20,
 			y: 40,
 			width: 180,
@@ -241,13 +247,13 @@ export class BattleScene extends BaseScene {
 		});
 
 		let yOffset = 50;
-		this.playerParty.forEach((character, index) => {
+		this.playerParty.forEach((character) => {
 			new TextBlock(this, {
 				x: 30,
 				y: yOffset,
 				text: character.name,
 				fontKey: "everydayStandard",
-				color: Palette.WHITE,
+				color: Palette.WHITE.hex,
 			});
 
 			// HP Bar
@@ -258,8 +264,8 @@ export class BattleScene extends BaseScene {
 				height: 6,
 				value: character.currentHP,
 				maxValue: character.maxHP,
-				gradientStart: Palette.RED,
-				gradientEnd: Palette.RED,
+				gradientStart: Palette.RED.hex,
+				gradientEnd: Palette.RED.hex,
 			});
 			this.playerHPBars.push(hpBar);
 
@@ -268,7 +274,7 @@ export class BattleScene extends BaseScene {
 				y: yOffset + 15,
 				text: "HP",
 				fontKey: "everydayStandard",
-				color: Palette.WHITE,
+				color: Palette.WHITE.hex,
 			});
 
 			// MP Bar
@@ -279,8 +285,8 @@ export class BattleScene extends BaseScene {
 				height: 6,
 				value: character.currentMP,
 				maxValue: character.maxMP,
-				gradientStart: Palette.BLUE,
-				gradientEnd: Palette.BLUE,
+				gradientStart: Palette.BLUE.hex,
+				gradientEnd: Palette.BLUE.hex,
 			});
 			this.playerMPBars.push(mpBar);
 
@@ -289,7 +295,7 @@ export class BattleScene extends BaseScene {
 				y: yOffset + 25,
 				text: "MP",
 				fontKey: "everydayStandard",
-				color: Palette.WHITE,
+				color: Palette.WHITE.hex,
 			});
 
 			yOffset += 40;
@@ -297,12 +303,12 @@ export class BattleScene extends BaseScene {
 
 		// Enemy party display (right side with placeholder art)
 		yOffset = 50;
-		this.enemyParty.forEach((enemy, index) => {
+		this.enemyParty.forEach((enemy) => {
 			// Placeholder enemy sprite
 			const enemySprite = this.add.graphics();
-			enemySprite.fillStyle(Palette.DARK_RED);
+			enemySprite.fillStyle(Palette.DARK_RED.num);
 			enemySprite.fillRect(300, yOffset, 40, 40);
-			enemySprite.lineStyle(2, Palette.WHITE);
+			enemySprite.lineStyle(2, Palette.WHITE.num);
 			enemySprite.strokeRect(300, yOffset, 40, 40);
 
 			new TextBlock(this, {
@@ -310,7 +316,7 @@ export class BattleScene extends BaseScene {
 				y: yOffset + 10,
 				text: enemy.name,
 				fontKey: "everydayStandard",
-				color: Palette.WHITE,
+				color: Palette.WHITE.hex,
 			});
 
 			// Enemy HP Bar
@@ -321,8 +327,8 @@ export class BattleScene extends BaseScene {
 				height: 6,
 				value: enemy.currentHP,
 				maxValue: enemy.maxHP,
-				gradientStart: Palette.RED,
-				gradientEnd: Palette.RED,
+				gradientStart: Palette.RED.hex,
+				gradientEnd: Palette.RED.hex,
 			});
 			this.enemyHPBars.push(enemyHpBar);
 
@@ -332,7 +338,7 @@ export class BattleScene extends BaseScene {
 
 	private createMessageArea() {
 		// Message window for battle text
-		this.messageWindow = new Window(this, {
+		new Window(this, {
 			x: 20,
 			y: 170,
 			width: 387,
@@ -344,39 +350,21 @@ export class BattleScene extends BaseScene {
 			y: 185,
 			text: "Battle started! Choose your action...",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 	}
 
 	private createAnimationSpaces() {
-		// Container for battle animations
-		this.animationContainer = new Container(this);
-
-		// Container for popup messages
-		this.popupContainer = new Container(this);
+		// Animation containers removed for now
 	}
 
 	private startBattle() {
-		this.calculateTurnOrder();
-		this.currentPhase = BattlePhase.SELECTING_ACTIONS;
-		this.currentCharacterIndex = 0;
 		this.processNextCharacter();
-	}
-
-	private calculateTurnOrder() {
-		// Combine all living characters and sort by speed
-		const allCharacters = [...this.playerParty, ...this.enemyParty]
-			.filter((char) => char.isAlive)
-			.sort((a, b) => b.speed - a.speed);
-
-		this.turnOrder = allCharacters;
-		this.turnIndex = 0;
 	}
 
 	private processNextCharacter() {
 		if (this.turnIndex >= this.turnOrder.length) {
 			// All characters have acted, resolve actions
-			this.currentPhase = BattlePhase.RESOLVING_ACTIONS;
 			this.resolveActions();
 			return;
 		}
@@ -384,45 +372,46 @@ export class BattleScene extends BaseScene {
 		const currentCharacter = this.turnOrder[this.turnIndex];
 
 		if (currentCharacter.isPlayer) {
-			this.showPlayerActionMenu(currentCharacter);
+			// Player turn is now started by sending an event to the FSM
+			this.focusManager.sendEvent({ type: 'startPlayerTurn', character: currentCharacter });
 		} else {
 			this.processEnemyAction(currentCharacter);
 		}
 	}
 
-	private showPlayerActionMenu(character: Character) {
-		this.hideAllMenus();
+	// =========================================================================
+	// Menu Creation, Show, and Hide Logic
+	// Driven by FSM onEnter/onExit hooks now
+	// =========================================================================
 
-		// Push new focus layer for action menu
-		this.focusManager?.pushLayer("actionMenu");
-
-		// Create action window
-		this.actionWindow = new Window(this, {
-			x: 220,
-			y: 100,
-			width: 150,
-			height: 100,
-			transition: { type: "fade", duration: 300 },
-		});
-
+	private createActionMenu(): Menu {
 		const actionItems: MenuItem[] = [
 			{
 				text: "Attack",
-				onSelect: () =>
-					this.beginAction(character, { type: ActionType.ATTACK }),
+				onSelect: () => this.focusManager.sendEvent({ type: "selectAttack" }),
 			},
 			{
 				text: "Defend",
-				onSelect: () =>
-					this.selectAction(character, { type: ActionType.DEFEND }),
+				onSelect: () => {
+					// Defend is a complete action, no target needed.
+					// The scene will handle the logic, then tell the FSM the action is confirmed.
+					const character = (this.focusManager.getCurrentState() as any).character;
+					this.selectAction(character, { type: ActionType.DEFEND });
+				},
 			},
 			{
 				text: "Skills",
-				onSelect: () => this.showSkillMenu(character),
+				onSelect: () => {
+					const character = (this.focusManager.getCurrentState() as any).character;
+					const availableSkills = this.availableSkills.filter(
+						(skill) => character.currentMP >= skill.mpCost,
+					);
+					this.focusManager.sendEvent({ type: "selectSkill", skills: availableSkills });
+				},
 			},
 			{
 				text: "Items",
-				onSelect: () => this.selectAction(character, { type: ActionType.ITEM }),
+				onSelect: () => this.focusManager.sendEvent({ type: "selectItem" }),
 			},
 		];
 
@@ -431,236 +420,132 @@ export class BattleScene extends BaseScene {
 			y: 100,
 			width: 150,
 			items: actionItems,
-			onCancel: () => {
-				// TODO: Allow going back to previous character if needed
-				console.log("Action menu cancelled");
-			},
+			onCancel: () => this.focusManager.sendEvent({ type: "cancel" }),
 		});
-
-		this.focusableActionMenu = new FocusableMenu(this.actionMenu);
-		this.actionMenuToken = this.focusManager!.register(
-			"actionMenu",
-			this.focusableActionMenu,
-			"actionMenu",
-		);
-		this.focusManager?.focus(this.actionMenuToken);
+		this.actionMenu.setVisible(false);
+		return this.actionMenu;
+	}
+	
+	private showActionMenu(state: BattleFocusState & { id: 'actionMenu' }) {
+		this.actionMenu?.getWindow().fadeIn({ duration: 300 });
+		this.actionMenu?.setVisible(true);
 	}
 
-	private showSkillMenu(character: Character) {
-		// Push new focus layer for skill menu
-		this.focusManager?.pushLayer("skillMenu");
-
-		// Create skill window
-		this.skillWindow = new Window(this, {
-			x: 50,
-			y: 80,
-			width: 200,
-			height: 120,
-			transition: { type: "fade", duration: 300 },
-		});
-
-		const skillItems: MenuItem[] = this.availableSkills
-			.filter((skill) => character.currentMP >= skill.mpCost)
-			.map((skill) => ({
-				text: `${skill.name} (${skill.mpCost} MP)`,
-				onSelect: () =>
-					this.beginAction(character, {
-						type: ActionType.SKILL,
-						skillId: skill.id,
-					}),
-			}));
-
-		// Add back option
-		skillItems.push({
-			text: "Back",
-			onSelect: () => {
-				this.hideSkillMenu();
-				// Return focus to action menu
-				if (this.actionMenuToken) {
-					this.focusManager?.focus(this.actionMenuToken);
-				}
-			},
-		});
-
+	private hideActionMenu() {
+		this.actionMenu?.setVisible(false);
+		this.actionMenu?.getWindow().fadeOut({ duration: 300 });
+	}
+	
+	private createSkillMenu(): Menu {
 		this.skillMenu = new Menu(this, {
 			x: 50,
 			y: 80,
 			width: 200,
-			items: skillItems,
-			onCancel: () => {
-				this.hideSkillMenu();
-				// Return focus to action menu
-				if (this.actionMenuToken) {
-					this.focusManager?.focus(this.actionMenuToken);
-				}
-			},
+			items: [], // Items are set dynamically in showSkillMenu
+			onCancel: () => this.focusManager.sendEvent({ type: "back" }),
 		});
-
-		this.focusableSkillMenu = new FocusableMenu(this.skillMenu);
-		this.skillMenuToken = this.focusManager!.register(
-			"skillMenu",
-			this.focusableSkillMenu,
-			"skillMenu",
-		);
-		this.focusManager?.focus(this.skillMenuToken);
+		this.skillMenu.setVisible(false);
+		return this.skillMenu;
 	}
 
-	private showTargetMenu(
-		targets: Character[],
-		targetType: "enemies" | "allies",
-	) {
-		// Push new focus layer for target menu
-		this.focusManager?.pushLayer("targetMenu");
-
-		// Create target window
-		this.targetWindow = new Window(this, {
-			x: 100,
-			y: 50,
-			width: 200,
-			height: Math.min(120, targets.length * 25 + 40),
-			transition: { type: "fade", duration: 300 },
-		});
-
-		const targetItems: MenuItem[] = targets.map((target) => ({
-			text: `${target.name} (${target.currentHP}/${target.maxHP} HP)`,
-			onSelect: () => this.selectTarget(target.id),
+	private showSkillMenu(state: BattleFocusState & { id: 'skillMenu' }) {
+		const skillItems: MenuItem[] = state.skills.map((skill) => ({
+			text: `${skill.name} (${skill.mpCost} MP)`,
+			onSelect: () => {
+				this.focusManager.sendEvent({
+					type: "selectAttack", // In the config, this means "action that needs a target"
+					skillId: skill.id,
+				} as any); // cast because skillId is not on base event
+			},
 		}));
 
-		// Add back option
-		targetItems.push({
+		skillItems.push({
 			text: "Back",
-			onSelect: () => {
-				this.hideTargetMenu();
-				// Return focus to appropriate menu
-				if (
-					this.pendingAction?.type === ActionType.SKILL &&
-					this.skillMenuToken
-				) {
-					this.focusManager?.focus(this.skillMenuToken);
-				} else if (this.actionMenuToken) {
-					this.focusManager?.focus(this.actionMenuToken);
-				}
-			},
+			onSelect: () => this.focusManager.sendEvent({ type: "back" }),
 		});
+		
+		// Dynamically resize window based on content
+		const height = Math.min(120, skillItems.length * 25 + 40);
+		this.skillMenu?.getWindow().resize(200, height);
+		this.skillMenu?.getWindow().fadeIn({ duration: 300 });
+		
+		this.skillMenu?.setItems(skillItems);
+		this.skillMenu?.setVisible(true);
+	}
 
+	private hideSkillMenu() {
+		this.skillMenu?.setVisible(false);
+		this.skillMenu?.getWindow().fadeOut({ duration: 300 });
+	}
+
+	private createTargetMenu(): Menu {
 		this.targetMenu = new Menu(this, {
 			x: 100,
 			y: 50,
 			width: 200,
-			items: targetItems,
-			onCancel: () => {
-				this.hideTargetMenu();
-				// Return focus to appropriate menu
-				if (
-					this.pendingAction?.type === ActionType.SKILL &&
-					this.skillMenuToken
-				) {
-					this.focusManager?.focus(this.skillMenuToken);
-				} else if (this.actionMenuToken) {
-					this.focusManager?.focus(this.actionMenuToken);
-				}
-			},
+			items: [], // Set dynamically
+			onCancel: () => this.focusManager.sendEvent({ type: "back" }),
 		});
-
-		this.focusableTargetMenu = new FocusableMenu(this.targetMenu);
-		this.targetMenuToken = this.focusManager!.register(
-			"targetMenu",
-			this.focusableTargetMenu,
-			"targetMenu",
-		);
-		this.focusManager?.focus(this.targetMenuToken);
+		this.targetMenu.setVisible(false);
+		return this.targetMenu;
 	}
 
-	private selectTarget(targetId: string) {
-		if (this.pendingAction && this.currentActingCharacter) {
-			const completeAction: BattleAction = {
-				...this.pendingAction,
-				targetId,
-			} as BattleAction;
+	private showTargetMenu(state: BattleFocusState & { id: 'targetMenu' }) {
+		const { pendingAction } = state;
+		
+		// Determine which characters are valid targets
+		let potentialTargets: Character[] = [];
+		const skill = pendingAction.skillId
+			? this.availableSkills.find((s) => s.id === pendingAction.skillId)
+			: null;
 
-			this.selectAction(this.currentActingCharacter, completeAction);
+		if (pendingAction.type === 'attack' || (skill && skill.damage)) {
+			potentialTargets = this.enemyParty.filter((e) => e.isAlive);
+		} else if (skill && skill.healing) {
+			potentialTargets = this.playerParty.filter((p) => p.isAlive);
 		}
+		
+		const targetItems: MenuItem[] = potentialTargets.map((target) => ({
+			text: `${target.name} (${target.currentHP}/${target.maxHP} HP)`,
+			onSelect: () => this.selectTarget(target.id),
+		}));
+
+		targetItems.push({
+			text: "Back",
+			onSelect: () => this.focusManager.sendEvent({ type: "back" }),
+		});
+
+		// Dynamically resize window and fade in
+		const height = Math.min(120, targetItems.length * 25 + 40);
+		this.targetMenu?.getWindow().resize(200, height);
+		this.targetMenu?.getWindow().fadeIn({ duration: 300 });
+		
+		this.targetMenu?.setItems(targetItems);
+		this.targetMenu?.setVisible(true);
 	}
 
 	private hideTargetMenu() {
-		if (this.targetMenu) {
-			this.targetMenu.destroy();
-			this.targetMenu = null;
-			this.focusableTargetMenu = null;
-		}
-
-		if (this.targetWindow) {
-			this.targetWindow.fadeOut({
-				duration: 300,
-				onComplete: () => {
-					this.targetWindow?.destroy();
-					this.targetWindow = null;
-				},
-			});
-		}
-
-		this.focusManager?.popLayer();
+		this.targetMenu?.setVisible(false);
+		this.targetMenu?.getWindow().fadeOut({ duration: 300 });
 	}
 
-	private hideSkillMenu() {
-		if (this.skillMenu) {
-			this.skillMenu.destroy();
-			this.skillMenu = null;
-			this.focusableSkillMenu = null;
-		}
+	private selectTarget(targetId: string) {
+		const currentState = this.focusManager.getCurrentState() as any;
+		if (currentState.pendingAction) {
+			const completeAction: BattleAction = {
+				...currentState.pendingAction,
+				targetId,
+			} as BattleAction;
 
-		if (this.skillWindow) {
-			this.skillWindow.fadeOut({
-				duration: 300,
-				onComplete: () => {
-					this.skillWindow?.destroy();
-					this.skillWindow = null;
-				},
-			});
-		}
-
-		this.focusManager?.popLayer();
-	}
-
-	private beginAction(character: Character, action: Partial<BattleAction>) {
-		this.currentActingCharacter = character;
-		this.pendingAction = action;
-
-		// Check if action needs target selection
-		if (
-			action.type === ActionType.ATTACK ||
-			(action.type === ActionType.SKILL && action.skillId)
-		) {
-			const skill = action.skillId
-				? this.availableSkills.find((s) => s.id === action.skillId)
-				: null;
-
-			if (action.type === ActionType.ATTACK || (skill && skill.damage)) {
-				// Damage action - show enemy targets
-				this.showTargetMenu(
-					this.enemyParty.filter((e) => e.isAlive),
-					"enemies",
-				);
-			} else if (skill && skill.healing) {
-				// Healing action - show player targets
-				this.showTargetMenu(
-					this.playerParty.filter((p) => p.isAlive),
-					"allies",
-				);
-			}
-		} else {
-			// No target needed, complete action
-			this.selectAction(character, action as BattleAction);
+			this.selectAction(currentState.character, completeAction);
 		}
 	}
 
 	private selectAction(character: Character, action: BattleAction) {
 		character.selectedAction = action;
-		this.hideAllMenus();
 
-		// Move to next character
-		this.turnIndex++;
-		this.processNextCharacter();
+		// Tell the FSM the action is done. The stateChanged listener will handle advancing the turn.
+		this.focusManager.sendEvent({ type: 'confirmAction', action });
 	}
 
 	private processEnemyAction(character: Character) {
@@ -691,7 +576,6 @@ export class BattleScene extends BaseScene {
 
 		// Check for battle end conditions
 		if (this.checkBattleEnd()) {
-			this.currentPhase = BattlePhase.BATTLE_END;
 			return;
 		}
 
@@ -885,78 +769,28 @@ export class BattleScene extends BaseScene {
 		});
 
 		// Recalculate turn order (in case characters died)
-		this.calculateTurnOrder();
+		this.turnOrder = [...this.playerParty, ...this.enemyParty]
+			.filter((char) => char.isAlive)
+			.sort((a, b) => b.speed - a.speed);
+		
+		this.turnIndex = 0; // Reset for the new turn
 
 		// Start new turn
-		this.currentPhase = BattlePhase.SELECTING_ACTIONS;
 		this.processNextCharacter();
 	}
 
 	private hideAllMenus() {
-		if (this.actionMenu) {
-			this.actionMenu.destroy();
-			this.actionMenu = null;
-			this.focusableActionMenu = null;
-		}
-
-		if (this.skillMenu) {
-			this.skillMenu.destroy();
-			this.skillMenu = null;
-			this.focusableSkillMenu = null;
-		}
-
-		if (this.targetMenu) {
-			this.targetMenu.destroy();
-			this.targetMenu = null;
-			this.focusableTargetMenu = null;
-		}
-
-		if (this.actionWindow) {
-			this.actionWindow.fadeOut({
-				duration: 300,
-				onComplete: () => {
-					this.actionWindow?.destroy();
-					this.actionWindow = null;
-				},
-			});
-		}
-
-		if (this.skillWindow) {
-			this.skillWindow.fadeOut({
-				duration: 300,
-				onComplete: () => {
-					this.skillWindow?.destroy();
-					this.skillWindow = null;
-				},
-			});
-		}
-
-		if (this.targetWindow) {
-			this.targetWindow.fadeOut({
-				duration: 300,
-				onComplete: () => {
-					this.targetWindow?.destroy();
-					this.targetWindow = null;
-				},
-			});
-		}
-
-		// Pop all menu layers
-		this.focusManager?.popLayer();
-		this.focusManager?.popLayer();
-		this.focusManager?.popLayer();
-
-		// Clear pending action state
-		this.pendingAction = null;
-		this.currentActingCharacter = null;
+		this.hideActionMenu();
+		this.hideSkillMenu();
+		this.hideTargetMenu();
+		
+		// Let the FSM know the turn is over, which should return it to 'idle'
+		this.focusManager.sendEvent({ type: 'endTurn' });
 	}
 
 	destroy() {
-		this.hideAllMenus();
-
 		if (this.focusManager) {
 			this.focusManager.destroy();
-			this.focusManager = null;
 		}
 
 		// Clean up arrays

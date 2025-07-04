@@ -18,7 +18,7 @@ export class SelectionHighlight extends Phaser.GameObjects.Graphics {
 
 		this.clear();
 		this.fillStyle(
-			Phaser.Display.Color.HexStringToColor(Palette.GREEN).color,
+			Phaser.Display.Color.HexStringToColor(Palette.GREEN.hex).color,
 			0.4,
 		);
 		this.fillRect(

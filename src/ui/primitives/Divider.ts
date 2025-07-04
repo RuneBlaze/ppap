@@ -35,7 +35,7 @@ export class Divider extends Phaser.GameObjects.Graphics {
 			height = 2,
 			orientation = "horizontal",
 			style = "line",
-			color = Palette.GRAY,
+			color = Palette.GRAY.hex,
 			thickness = 1,
 		} = this.options;
 

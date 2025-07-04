@@ -30,6 +30,7 @@ export class Menu extends Container {
 	private nav: NavigationController;
 	private textBlocks: TextBlock[] = [];
 	private highlight: SelectionHighlight;
+	private window: Window;
 
 	constructor(
 		scene: Phaser.Scene,
@@ -39,19 +40,52 @@ export class Menu extends Container {
 
 		const menuHeight = options.items.length * LINE_HEIGHT + PADDING * 2;
 
-		const window = new Window(scene, {
+		this.window = new Window(scene, {
 			x: 0,
 			y: 0,
 			width: options.width,
 			height: menuHeight,
 		});
-		this.add(window);
+		this.add(this.window);
 
 		this.highlight = new SelectionHighlight(scene);
 		this.add(this.highlight);
 
-		options.items.forEach((item, index) => {
-			const textBlock = new TextBlock(scene, {
+		this.setItems(options.items);
+
+		this.nav = new NavigationController(scene);
+		this.nav.setItems(this.options.items.length);
+		this.nav.on("changed", this.handleSelectionChange, this);
+		this.nav.on("activated", this.handleActivation, this);
+		if (options.onCancel) {
+			this.nav.on("cancelled", options.onCancel, this);
+		}
+
+		// Set initial highlight only if items exist
+		if (this.options.items.length > 0) {
+			this.handleSelectionChange(0); 
+		}
+	}
+
+	public getWindow(): Window {
+		return this.window;
+	}
+
+	setItems(items: MenuItem[]) {
+		// Clear existing items
+		this.textBlocks.forEach(tb => tb.destroy());
+		this.textBlocks = [];
+		this.options.items = items;
+
+		// Resize window if it exists (it's a child of this container)
+		if (this.window) {
+			const menuHeight = items.length * LINE_HEIGHT + PADDING * 2;
+			this.window.resize(this.options.width, menuHeight);
+		}
+
+		// Create new text blocks
+		items.forEach((item, index) => {
+			const textBlock = new TextBlock(this.scene, {
 				x: PADDING,
 				y: PADDING + index * LINE_HEIGHT,
 				text: item.text,
@@ -61,14 +95,13 @@ export class Menu extends Container {
 			this.textBlocks.push(textBlock);
 		});
 
-		this.nav = new NavigationController(scene);
-		this.nav.setItems(this.options.items.length);
-		this.nav.on("changed", this.handleSelectionChange, this);
-		this.nav.on("activated", this.handleActivation, this);
-		if (options.onCancel) {
-			this.nav.on("cancelled", options.onCancel, this);
+		// Update navigation
+		if (this.nav) {
+			this.nav.setItems(items.length);
+			if (items.length > 0) {
+				this.handleSelectionChange(0);
+			}
 		}
-		this.handleSelectionChange(0); // Set initial highlight
 	}
 
 	activate() {
@@ -83,7 +116,9 @@ export class Menu extends Container {
 
 	private handleSelectionChange(index: number) {
 		const target = this.textBlocks[index];
-		this.highlight.highlight(target);
+		if (target) {
+			this.highlight.highlight(target);
+		}
 	}
 
 	private handleActivation(index: number) {

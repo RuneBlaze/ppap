@@ -49,7 +49,7 @@ export class Gauge extends Phaser.GameObjects.Container {
 				y: 0,
 				text: Math.round(this.currentValue).toString(),
 				fontKey: options.fontKey ?? "retro",
-				color: Palette.WHITE,
+				color: Palette.WHITE.hex,
 				align: "center",
 			});
 			this.valueText.setOrigin(0.5);
@@ -163,9 +163,9 @@ export class Gauge extends Phaser.GameObjects.Container {
 			startAngle = -Math.PI / 2, // Start at top (-90 degrees)
 			endAngle = Math.PI * 1.5, // End at top (270 degrees) for full circle
 			thickness = 8,
-			backgroundColor = Palette.DARK_GRAY,
-			fillColor = Palette.GREEN,
-			borderColor = Palette.WHITE,
+			backgroundColor = Palette.DARK_GRAY.hex,
+			fillColor = Palette.GREEN.hex,
+			borderColor = Palette.WHITE.hex,
 		} = this.options;
 
 		const fillPercentage = this.getFillPercentage();

@@ -50,8 +50,8 @@ export class Slider extends Phaser.GameObjects.Container {
 			y: isHorizontal ? height / 2 - 2 : 0,
 			width: isHorizontal ? width : 4,
 			height: isHorizontal ? 4 : height,
-			fillColor: Palette.DARK_GRAY,
-			borderColor: Palette.GRAY,
+			fillColor: Palette.DARK_GRAY.hex,
+			borderColor: Palette.GRAY.hex,
 		};
 
 		this.track = new Window(scene, trackOptions);
@@ -63,8 +63,8 @@ export class Slider extends Phaser.GameObjects.Container {
 			y: 0,
 			width: isHorizontal ? handleSize : width,
 			height: isHorizontal ? height : handleSize,
-			fillColor: Palette.GRAY,
-			borderColor: Palette.WHITE,
+			fillColor: Palette.GRAY.hex,
+			borderColor: Palette.WHITE.hex,
 		};
 
 		this.handle = new Window(scene, handleOptions);
@@ -78,7 +78,7 @@ export class Slider extends Phaser.GameObjects.Container {
 				this.currentValue.toString(),
 				{
 					...fontStyle,
-					color: Palette.WHITE,
+					color: Palette.WHITE.hex,
 				},
 			);
 			this.valueText.setOrigin(0.5, 0);
@@ -148,7 +148,7 @@ export class Slider extends Phaser.GameObjects.Container {
 
 	private handlePointerUp = () => {
 		this.isDragging = false;
-		this.handle.redraw({ fillColor: Palette.GRAY });
+		this.handle.redraw({ fillColor: Palette.GRAY.hex });
 	};
 
 	private getLocalCoordinates(
@@ -204,7 +204,7 @@ export class Slider extends Phaser.GameObjects.Container {
 	}
 
 	public setFocus(isFocused: boolean) {
-		const borderColor = isFocused ? Palette.YELLOW : Palette.WHITE;
+		const borderColor = isFocused ? Palette.YELLOW.hex : Palette.WHITE.hex;
 		this.handle.redraw({ borderColor });
 	}
 

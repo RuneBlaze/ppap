@@ -41,7 +41,7 @@ export class Toggle extends Phaser.GameObjects.Container {
 			y: 0,
 			width,
 			height,
-			fillColor: this.isOn ? Palette.GREEN : Palette.DARK_GRAY,
+			fillColor: this.isOn ? Palette.GREEN.hex : Palette.DARK_GRAY.hex,
 		};
 
 		this.background = new Window(scene, windowOptions);
@@ -94,7 +94,7 @@ export class Toggle extends Phaser.GameObjects.Container {
 		const knobY = 2;
 
 		this.indicator.fillStyle(
-			Phaser.Display.Color.HexStringToColor(Palette.WHITE).color,
+			Phaser.Display.Color.HexStringToColor(Palette.WHITE.hex).color,
 		);
 		this.indicator.fillRoundedRect(
 			knobX,
@@ -109,7 +109,7 @@ export class Toggle extends Phaser.GameObjects.Container {
 		if (this.isOn) {
 			this.indicator.lineStyle(
 				2,
-				Phaser.Display.Color.HexStringToColor(Palette.WHITE).color,
+				Phaser.Display.Color.HexStringToColor(Palette.WHITE.hex).color,
 			);
 			const centerX = width / 2;
 			const centerY = height / 2;
@@ -123,7 +123,7 @@ export class Toggle extends Phaser.GameObjects.Container {
 	}
 
 	private drawButtonIndicator(width: number, height: number) {
-		const color = this.isOn ? Palette.GREEN : Palette.RED;
+		const color = this.isOn ? Palette.GREEN.hex : Palette.RED.hex;
 
 		this.indicator.clear();
 		this.indicator.fillStyle(
@@ -169,7 +169,7 @@ export class Toggle extends Phaser.GameObjects.Container {
 	}
 
 	private updateVisualState(animate: boolean = true) {
-		const fillColor = this.isOn ? Palette.GREEN : Palette.DARK_GRAY;
+		const fillColor = this.isOn ? Palette.GREEN.hex : Palette.DARK_GRAY.hex;
 		this.background.redraw({ fillColor });
 
 		if (this.label && this.options.labels) {
@@ -205,7 +205,7 @@ export class Toggle extends Phaser.GameObjects.Container {
 				const tweenedObject = tween.targets[0] as { x: number };
 				this.indicator.clear();
 				this.indicator.fillStyle(
-					Phaser.Display.Color.HexStringToColor(Palette.WHITE).color,
+					Phaser.Display.Color.HexStringToColor(Palette.WHITE.hex).color,
 				);
 				this.indicator.fillRoundedRect(
 					tweenedObject.x,
@@ -226,7 +226,7 @@ export class Toggle extends Phaser.GameObjects.Container {
 	}
 
 	public setFocus(isFocused: boolean) {
-		const borderColor = isFocused ? Palette.YELLOW : undefined;
+		const borderColor = isFocused ? Palette.YELLOW.hex : undefined;
 		this.background.redraw({ borderColor });
 	}
 

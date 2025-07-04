@@ -34,6 +34,12 @@ export class Window extends Phaser.GameObjects.Graphics {
 		}
 	}
 
+	resize(width: number, height: number) {
+		this.options.width = width;
+		this.options.height = height;
+		this.redraw({});
+	}
+
 	redraw(newOptions: Partial<WindowSkinOptions>) {
 		this.options = { ...this.options, ...newOptions };
 		this.clear();
@@ -41,20 +47,32 @@ export class Window extends Phaser.GameObjects.Graphics {
 	}
 
 	private handleFadeIn(transition: WindowTransitionOptions) {
-		const duration = transition.duration || 300;
-
-		// Simple alpha fade
 		this.setAlpha(0);
+		this.fadeIn(transition);
+	}
+
+	fadeIn(transition: WindowTransitionOptions = {}) {
+		if (this.transitionTween?.isPlaying()) {
+			this.transitionTween.stop();
+		}
+		
+		this.setVisible(true);
+		
+		const duration = transition.duration || 300;
 		this.transitionTween = this.scene.tweens.add({
 			targets: this,
 			alpha: 1,
-			duration: duration,
+			duration,
 			ease: "Power2.easeOut",
 			onComplete: transition.onComplete,
 		});
 	}
 
 	fadeOut(transition: WindowTransitionOptions = {}) {
+		if (this.transitionTween?.isPlaying()) {
+			this.transitionTween.stop();
+		}
+
 		const duration = transition.duration || 300;
 
 		// Simple alpha fade

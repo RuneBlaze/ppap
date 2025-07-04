@@ -11,6 +11,7 @@ export class NavigationController extends Phaser.Events.EventEmitter {
 	private maxIndex = 0;
 	private keydownListener: (event: KeyboardEvent) => void;
 	private active = true;
+	private cooldown = false;
 
 	private scene: Phaser.Scene;
 
@@ -23,6 +24,10 @@ export class NavigationController extends Phaser.Events.EventEmitter {
 
 	setActive(isActive: boolean) {
 		this.active = isActive;
+		if (isActive) {
+			this.cooldown = true;
+			this.scene.time.delayedCall(1, () => (this.cooldown = false));
+		}
 	}
 
 	setItems(numberOfItems: number) {
@@ -32,7 +37,7 @@ export class NavigationController extends Phaser.Events.EventEmitter {
 	}
 
 	private handleKeyDown(event: KeyboardEvent) {
-		if (this.maxIndex < 0 || !this.active) return;
+		if (this.maxIndex < 0 || !this.active || this.cooldown) return;
 
 		switch (event.key) {
 			case "ArrowUp":

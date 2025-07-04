@@ -158,14 +158,14 @@ export class ShopScene extends BaseScene {
 			y: 190,
 			text: "TAB: Switch focus | SPACE: Open Shop Menu | D: Toggle Dithering",
 			fontKey: "everydayStandard",
-			color: Palette.CYAN,
+			color: Palette.CYAN.hex,
 		});
 		new TextBlock(this, {
 			x: 30,
 			y: 205,
 			text: "Submenus will create new focus layers!",
 			fontKey: "everydayStandard",
-			color: Palette.YELLOW,
+			color: Palette.YELLOW.hex,
 		});
 	}
 
@@ -183,7 +183,7 @@ export class ShopScene extends BaseScene {
 			y: 32,
 			text: "Scrollable List Demo",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 
 		// Create sample items with some disabled
@@ -244,7 +244,7 @@ export class ShopScene extends BaseScene {
 			y: 32,
 			text: "Grid Navigation Demo",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 
 		// Create 3x3 grid of buttons
@@ -324,7 +324,7 @@ export class ShopScene extends BaseScene {
 			y: 252,
 			text: "Gradient (for Dithering Demo)",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 
 		const graphics = this.add.graphics();
@@ -335,10 +335,10 @@ export class ShopScene extends BaseScene {
 			height: 30,
 			value: 100,
 			maxValue: 100,
-			gradientStart: Palette.BLACK,
-			gradientEnd: Palette.WHITE,
+			gradientStart: Palette.BLACK.hex,
+			gradientEnd: Palette.WHITE.hex,
 			quantize: false,
-			borderColor: Palette.WHITE,
+			borderColor: Palette.WHITE.hex,
 		});
 
 		for (let i = 0; i < 4; i++) {
@@ -600,7 +600,7 @@ export class ShopScene extends BaseScene {
 			y: 32,
 			text: "UI Components Demo - Shop Scene",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 
 		// Create Stats Panel (left side)
@@ -626,7 +626,7 @@ export class ShopScene extends BaseScene {
 			y: 85,
 			text: "Hero",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 
 		const levelDisplay = new NumberDisplay(this, {
@@ -634,7 +634,7 @@ export class ShopScene extends BaseScene {
 			y: 100,
 			value: this.playerLevel,
 			fontKey: "everydayStandard",
-			color: Palette.CYAN,
+			color: Palette.CYAN.hex,
 			formatValue: (value: number) => `Lv.${value}`,
 		});
 		this.demoNumberDisplays.push(levelDisplay);
@@ -644,7 +644,7 @@ export class ShopScene extends BaseScene {
 			y: 115,
 			value: this.playerGold,
 			fontKey: "everydayStandard",
-			color: Palette.YELLOW,
+			color: Palette.YELLOW.hex,
 			formatValue: (value: number) => `${value}G`,
 		});
 		this.demoNumberDisplays.push(goldDisplay);
@@ -657,8 +657,8 @@ export class ShopScene extends BaseScene {
 			height: 8,
 			value: this.playerHP,
 			maxValue: 100,
-			gradientStart: Palette.RED,
-			gradientEnd: Palette.RED,
+			gradientStart: Palette.RED.hex,
+			gradientEnd: Palette.RED.hex,
 		});
 		this.demoProgressBars.push(hpBar);
 
@@ -667,7 +667,7 @@ export class ShopScene extends BaseScene {
 			y: 135,
 			text: "HP",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 
 		// Add heart icon for HP
@@ -687,8 +687,8 @@ export class ShopScene extends BaseScene {
 			height: 8,
 			value: this.playerMP,
 			maxValue: 100,
-			gradientStart: Palette.BLUE,
-			gradientEnd: Palette.BLUE,
+			gradientStart: Palette.BLUE.hex,
+			gradientEnd: Palette.BLUE.hex,
 		});
 		this.demoProgressBars.push(mpBar);
 
@@ -697,7 +697,7 @@ export class ShopScene extends BaseScene {
 			y: 150,
 			text: "MP",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 
 		// Circular Gauge (ATB/Charging)
@@ -707,8 +707,8 @@ export class ShopScene extends BaseScene {
 			radius: 15,
 			value: 0,
 			maxValue: 100,
-			fillColor: Palette.GREEN,
-			backgroundColor: Palette.DARK_GREEN,
+			fillColor: Palette.GREEN.hex,
+			backgroundColor: Palette.DARK_GREEN.hex,
 		});
 		this.demoGauges.push(atbGauge);
 
@@ -717,7 +717,7 @@ export class ShopScene extends BaseScene {
 			y: 170,
 			text: "ATB",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 	}
 
@@ -730,7 +730,7 @@ export class ShopScene extends BaseScene {
 			y: 85,
 			text: "Shop Settings",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 
 		// Volume Slider
@@ -752,7 +752,7 @@ export class ShopScene extends BaseScene {
 			y: 105,
 			text: "Vol",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 
 		// Difficulty Slider
@@ -774,7 +774,7 @@ export class ShopScene extends BaseScene {
 			y: 125,
 			text: "Diff",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 
 		// Toggles
@@ -794,7 +794,7 @@ export class ShopScene extends BaseScene {
 			y: 145,
 			text: "Sound",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 
 		const autoSaveToggle = new Toggle(this, {
@@ -813,7 +813,7 @@ export class ShopScene extends BaseScene {
 			y: 165,
 			text: "Auto Save",
 			fontKey: "everydayStandard",
-			color: Palette.WHITE,
+			color: Palette.WHITE.hex,
 		});
 	}
 

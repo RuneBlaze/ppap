@@ -22,7 +22,7 @@ export class TextBlock extends Phaser.GameObjects.Text {
 	constructor(scene: Phaser.Scene, options: TextBlockOptions) {
 		// Use the font size defined in fonts.ts - no manual override allowed
 		const style = getFontStyle(options.fontKey);
-		style.color = options.color ?? Palette.WHITE;
+		style.color = options.color ?? Palette.WHITE.hex;
 		style.align = options.align ?? "left";
 
 		if (options.wordWrapWidth) {

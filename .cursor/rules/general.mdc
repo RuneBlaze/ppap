@@ -1,0 +1,15 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+<style>
+1. Do not preserve backward compatibility when making API changes.
+2. Delete unused code; don't comment them out.
+</style>
+
+<general>
+1. We have both `remeda` and `ts-pattern` as utility libraries. Prefer them if offering a readaibility advantage.
+2. This is a phaser 3, retro-style game (HD pixel art).
+</general>

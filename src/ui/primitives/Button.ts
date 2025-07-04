@@ -33,7 +33,7 @@ export class Button extends Phaser.GameObjects.Container {
 			y: 0,
 			width: options.width,
 			height: options.height,
-			fillColor: Palette.DARK_PURPLE,
+			fillColor: Palette.DARK_PURPLE.hex,
 		};
 
 		this.background = new Window(scene, windowOptions);
@@ -75,7 +75,7 @@ export class Button extends Phaser.GameObjects.Container {
 	};
 
 	private updateVisualState() {
-		const fillColor = this.isHovered ? Palette.PURPLE : Palette.DARK_PURPLE;
+		const fillColor = this.isHovered ? Palette.PURPLE.hex : Palette.DARK_PURPLE.hex;
 		this.background.redraw({ fillColor });
 	}
 

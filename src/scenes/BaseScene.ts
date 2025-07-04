@@ -20,7 +20,7 @@ export abstract class BaseScene extends Phaser.Scene {
 	}
 
 	async create() {
-		this.cameras.main.setBackgroundColor(Palette.BLACK);
+		this.cameras.main.setBackgroundColor(Palette.BLACK.hex);
 
 		this.setupCursor();
 

@@ -95,13 +95,13 @@ export class ColorUtils {
 	// Find closest color in palette
 	static quantizeToPalette(rgb: RGB): string {
 		const paletteColors = Object.values(Palette);
-		let closestColor = paletteColors[0];
+		let closestColor = paletteColors[0].hex;
 		let minDistance = Infinity;
 
 		const targetOklab = ColorUtils.rgbToOklab(rgb);
 
 		for (const color of paletteColors) {
-			const colorRgb = ColorUtils.hexToRgb(color);
+			const colorRgb = ColorUtils.hexToRgb(color.hex);
 			const colorOklab = ColorUtils.rgbToOklab(colorRgb);
 
 			const distance = Math.sqrt(
@@ -112,7 +112,7 @@ export class ColorUtils {
 
 			if (distance < minDistance) {
 				minDistance = distance;
-				closestColor = color;
+				closestColor = color.hex;
 			}
 		}
 

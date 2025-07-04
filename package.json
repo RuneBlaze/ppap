@@ -14,9 +14,11 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.0.6",
 		"typescript": "~5.8.3",
-		"vite": "^6.3.5"
+		"vite": "^6.3.5",
+		"vite-plugin-toml": "^0.7.0"
 	},
 	"dependencies": {
+		"navigo": "^8.11.1",
 		"phaser": "^3.90.0",
 		"remeda": "^2.22.5",
 		"ts-pattern": "^5.7.1"

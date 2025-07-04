@@ -1,11 +1,15 @@
 import Phaser from "phaser";
 import cursorImg from "../assets/cursor.png";
+import particleSheet from "../assets/spritesheet_transparent.png";
 import { DrawUtils } from "../draw-utils";
 import { loadFonts } from "../fonts";
 import { Palette } from "../palette";
+import { Anim, type EmitterConfig } from "../base/ps";
+import animPredefs from "../assets/anims.toml";
 
 export abstract class BaseScene extends Phaser.Scene {
 	private cursorSprite?: Phaser.GameObjects.Image;
+	private activeAnims: Anim[] = [];
 
 	// Dithering toggle state
 	private ditheringEnabled: boolean = true;
@@ -15,7 +19,17 @@ export abstract class BaseScene extends Phaser.Scene {
 	}
 
 	preload() {
-		this.load.image("cursor", cursorImg);
+		if (!this.textures.exists("cursor")) {
+			this.load.image("cursor", cursorImg);
+		}
+		// Load 8x8 sprite sheet used by the custom particle system
+		if (!this.textures.exists("ps_particle")) {
+			this.load.spritesheet("ps_particle", particleSheet, {
+				frameWidth: 8,
+				frameHeight: 8,
+			});
+		}
+		DrawUtils.preloadAssets(this);
 		this.preloadSceneAssets();
 	}
 
@@ -123,6 +137,35 @@ export abstract class BaseScene extends Phaser.Scene {
 		}
 	}
 
+	addPredefinedAnim(key: string, x: number, y: number, playSpeed = 1): Anim | undefined {
+		const animConfigs = (animPredefs.anims as Record<string, EmitterConfig[]>)[
+			key
+		];
+		if (!animConfigs) {
+			console.warn(`Animation with key "${key}" not found in animPredefs.`);
+			return undefined;
+		}
+
+		const newAnim = new Anim(x, y, animConfigs, playSpeed);
+		this.activeAnims.push(newAnim);
+		return newAnim;
+	}
+
 	protected abstract preloadSceneAssets(): void;
 	protected abstract createScene(): void;
+
+	// Flush particle system draw calls every frame.
+	update(time: number, delta: number): void {
+		// Update animations
+		this.activeAnims = this.activeAnims.filter((anim) => {
+			if (anim.dead) {
+				return false;
+			}
+			anim.update(delta / 1000); // ps.ts update expects seconds
+			return true;
+		});
+
+		// Draw any queued particle system graphics.
+		Anim.flushDrawCalls(this);
+	}
 }

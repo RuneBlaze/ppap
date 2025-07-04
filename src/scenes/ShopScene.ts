@@ -69,9 +69,7 @@ export class ShopScene extends BaseScene {
 		super("ShopScene");
 	}
 
-	protected preloadSceneAssets() {
-		DrawUtils.preloadAssets(this);
-	}
+	protected preloadSceneAssets() {}
 
 	protected createScene() {
 		// Initialize the focus management system

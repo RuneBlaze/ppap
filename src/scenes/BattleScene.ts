@@ -107,7 +107,7 @@ export class BattleScene extends BaseScene {
 	}
 
 	protected preloadSceneAssets() {
-		DrawUtils.preloadAssets(this);
+		// Assets are preloaded in BaseScene
 	}
 
 	protected createScene() {
@@ -115,6 +115,14 @@ export class BattleScene extends BaseScene {
 		this.createUI();
 		this.initializeFocusManager(); // Must be after UI is created
 		this.startBattle();
+
+		this.time.addEvent({
+			delay: 2000,
+			callback: () => {
+				this.addPredefinedAnim("confetti_left", 213, 120);
+			},
+			loop: true,
+		});
 	}
 
 	private initializeFocusManager() {
@@ -478,7 +486,8 @@ export class BattleScene extends BaseScene {
 			text: "Back",
 			onSelect: () => this.focusManager.sendEvent({ type: "back" }),
 		});
-		
+
+		this.skillMenu?.setItems(skillItems);
 		// Dynamically resize window based on content
 		const height = this.calculateMenuHeight(skillItems.length);
 		this.skillMenu?.getWindow().resize(200, height);
@@ -531,6 +540,7 @@ export class BattleScene extends BaseScene {
 			onSelect: () => this.focusManager.sendEvent({ type: "back" }),
 		});
 
+		this.targetMenu?.setItems(targetItems);
 		// Dynamically resize window and fade in
 		const height = this.calculateMenuHeight(targetItems.length);
 		this.targetMenu?.getWindow().resize(200, height);

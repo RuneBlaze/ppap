@@ -8,6 +8,8 @@ import { FocusableMenu } from "../ui/state/SimpleFocusableWrappers";
 import { GenericFocusStateMachine } from "../ui/state/GenericFocusStateMachine";
 import { battleFocusConfig, type BattleFocusState, type BattleFocusEvent } from "./BattleFocusConfig";
 import { BaseScene } from "./BaseScene";
+import { match } from "ts-pattern";
+import { filter, pipe, sample, sort } from "remeda";
 
 
 export enum ActionType {
@@ -207,9 +209,11 @@ export class BattleScene extends BaseScene {
 			},
 		];
 
-		this.turnOrder = [...this.playerParty, ...this.enemyParty]
-			.filter((char) => char.isAlive)
-			.sort((a, b) => b.speed - a.speed);
+		this.turnOrder = pipe(
+			[...this.playerParty, ...this.enemyParty],
+			filter((char) => char.isAlive),
+			sort((a, b) => b.speed - a.speed),
+		);
 		this.turnIndex = 0;
 	}
 
@@ -248,10 +252,11 @@ export class BattleScene extends BaseScene {
 
 		let yOffset = 50;
 		this.playerParty.forEach((character) => {
+			const { name, currentHP, maxHP, currentMP, maxMP } = character;
 			new TextBlock(this, {
 				x: 30,
 				y: yOffset,
-				text: character.name,
+				text: name,
 				fontKey: "everydayStandard",
 				color: Palette.WHITE.hex,
 			});
@@ -262,8 +267,8 @@ export class BattleScene extends BaseScene {
 				y: yOffset + 15,
 				width: 120,
 				height: 6,
-				value: character.currentHP,
-				maxValue: character.maxHP,
+				value: currentHP,
+				maxValue: maxHP,
 				gradientStart: Palette.RED.hex,
 				gradientEnd: Palette.RED.hex,
 			});
@@ -283,8 +288,8 @@ export class BattleScene extends BaseScene {
 				y: yOffset + 25,
 				width: 120,
 				height: 6,
-				value: character.currentMP,
-				maxValue: character.maxMP,
+				value: currentMP,
+				maxValue: maxMP,
 				gradientStart: Palette.BLUE.hex,
 				gradientEnd: Palette.BLUE.hex,
 			});
@@ -304,6 +309,7 @@ export class BattleScene extends BaseScene {
 		// Enemy party display (right side with placeholder art)
 		yOffset = 50;
 		this.enemyParty.forEach((enemy) => {
+			const { name, currentHP, maxHP } = enemy;
 			// Placeholder enemy sprite
 			const enemySprite = this.add.graphics();
 			enemySprite.fillStyle(Palette.DARK_RED.num);
@@ -314,7 +320,7 @@ export class BattleScene extends BaseScene {
 			new TextBlock(this, {
 				x: 350,
 				y: yOffset + 10,
-				text: enemy.name,
+				text: name,
 				fontKey: "everydayStandard",
 				color: Palette.WHITE.hex,
 			});
@@ -325,8 +331,8 @@ export class BattleScene extends BaseScene {
 				y: yOffset + 25,
 				width: 60,
 				height: 6,
-				value: enemy.currentHP,
-				maxValue: enemy.maxHP,
+				value: currentHP,
+				maxValue: maxHP,
 				gradientStart: Palette.RED.hex,
 				gradientEnd: Palette.RED.hex,
 			});
@@ -403,7 +409,7 @@ export class BattleScene extends BaseScene {
 				text: "Skills",
 				onSelect: () => {
 					const character = (this.focusManager.getCurrentState() as any).character;
-					const availableSkills = this.availableSkills.filter(
+					const availableSkills = filter(this.availableSkills, 
 						(skill) => character.currentMP >= skill.mpCost,
 					);
 					this.focusManager.sendEvent({ type: "selectSkill", skills: availableSkills });
@@ -425,15 +431,25 @@ export class BattleScene extends BaseScene {
 		this.actionMenu.setVisible(false);
 		return this.actionMenu;
 	}
+
+	private toggleMenuVisibility(menu: Menu | null, isVisible: boolean) {
+		if (!menu) return;
+		const window = menu.getWindow();
+		if (isVisible) {
+			window.fadeIn({ duration: 300 });
+			menu.setVisible(true);
+		} else {
+			menu.setVisible(false);
+			window.fadeOut({ duration: 300 });
+		}
+	}
 	
 	private showActionMenu(state: BattleFocusState & { id: 'actionMenu' }) {
-		this.actionMenu?.getWindow().fadeIn({ duration: 300 });
-		this.actionMenu?.setVisible(true);
+		this.toggleMenuVisibility(this.actionMenu, true);
 	}
 
 	private hideActionMenu() {
-		this.actionMenu?.setVisible(false);
-		this.actionMenu?.getWindow().fadeOut({ duration: 300 });
+		this.toggleMenuVisibility(this.actionMenu, false);
 	}
 	
 	private createSkillMenu(): Menu {
@@ -444,7 +460,6 @@ export class BattleScene extends BaseScene {
 			items: [], // Items are set dynamically in showSkillMenu
 			onCancel: () => this.focusManager.sendEvent({ type: "back" }),
 		});
-		this.skillMenu.setVisible(false);
 		return this.skillMenu;
 	}
 
@@ -465,17 +480,13 @@ export class BattleScene extends BaseScene {
 		});
 		
 		// Dynamically resize window based on content
-		const height = Math.min(120, skillItems.length * 25 + 40);
+		const height = this.calculateMenuHeight(skillItems.length);
 		this.skillMenu?.getWindow().resize(200, height);
-		this.skillMenu?.getWindow().fadeIn({ duration: 300 });
-		
-		this.skillMenu?.setItems(skillItems);
-		this.skillMenu?.setVisible(true);
+		this.toggleMenuVisibility(this.skillMenu, true);
 	}
 
 	private hideSkillMenu() {
-		this.skillMenu?.setVisible(false);
-		this.skillMenu?.getWindow().fadeOut({ duration: 300 });
+		this.toggleMenuVisibility(this.skillMenu, false);
 	}
 
 	private createTargetMenu(): Menu {
@@ -486,7 +497,6 @@ export class BattleScene extends BaseScene {
 			items: [], // Set dynamically
 			onCancel: () => this.focusManager.sendEvent({ type: "back" }),
 		});
-		this.targetMenu.setVisible(false);
 		return this.targetMenu;
 	}
 
@@ -494,16 +504,22 @@ export class BattleScene extends BaseScene {
 		const { pendingAction } = state;
 		
 		// Determine which characters are valid targets
-		let potentialTargets: Character[] = [];
 		const skill = pendingAction.skillId
 			? this.availableSkills.find((s) => s.id === pendingAction.skillId)
 			: null;
 
-		if (pendingAction.type === 'attack' || (skill && skill.damage)) {
-			potentialTargets = this.enemyParty.filter((e) => e.isAlive);
-		} else if (skill && skill.healing) {
-			potentialTargets = this.playerParty.filter((p) => p.isAlive);
-		}
+		const potentialTargets = match(pendingAction.type)
+			.with(ActionType.ATTACK, () => filter(this.enemyParty, (e) => e.isAlive))
+			.with(ActionType.SKILL, () => {
+				if (skill?.damage) {
+					return filter(this.enemyParty, (e) => e.isAlive);
+				}
+				if (skill?.healing) {
+					return filter(this.playerParty, (p) => p.isAlive);
+				}
+				return [] as Character[];
+			})
+			.otherwise(() => [] as Character[]);
 		
 		const targetItems: MenuItem[] = potentialTargets.map((target) => ({
 			text: `${target.name} (${target.currentHP}/${target.maxHP} HP)`,
@@ -516,17 +532,13 @@ export class BattleScene extends BaseScene {
 		});
 
 		// Dynamically resize window and fade in
-		const height = Math.min(120, targetItems.length * 25 + 40);
+		const height = this.calculateMenuHeight(targetItems.length);
 		this.targetMenu?.getWindow().resize(200, height);
-		this.targetMenu?.getWindow().fadeIn({ duration: 300 });
-		
-		this.targetMenu?.setItems(targetItems);
-		this.targetMenu?.setVisible(true);
+		this.toggleMenuVisibility(this.targetMenu, true);
 	}
 
 	private hideTargetMenu() {
-		this.targetMenu?.setVisible(false);
-		this.targetMenu?.getWindow().fadeOut({ duration: 300 });
+		this.toggleMenuVisibility(this.targetMenu, false);
 	}
 
 	private selectTarget(targetId: string) {
@@ -550,9 +562,18 @@ export class BattleScene extends BaseScene {
 
 	private processEnemyAction(character: Character) {
 		// Simple AI: enemies always attack a random player
-		const livingPlayers = this.playerParty.filter((p) => p.isAlive);
-		const randomTarget =
-			livingPlayers[Math.floor(Math.random() * livingPlayers.length)];
+		const randomTarget = pipe(
+			this.playerParty,
+			filter((p) => p.isAlive),
+			sample(1),
+		)[0];
+
+		if (!randomTarget) {
+			console.warn("No living players for enemy to target.");
+			this.turnIndex++;
+			this.processNextCharacter();
+			return;
+		}
 
 		character.selectedAction = {
 			type: ActionType.ATTACK,
@@ -584,75 +605,40 @@ export class BattleScene extends BaseScene {
 	}
 
 	private executeAction(character: Character, action: BattleAction) {
-		switch (action.type) {
-			case ActionType.ATTACK:
-				this.executeAttack(character);
-				break;
-			case ActionType.DEFEND:
-				console.log(`${character.name} defends!`);
-				break;
-			case ActionType.SKILL:
-				this.executeSkill(character, action.skillId!);
-				break;
-			case ActionType.ITEM:
-				console.log(`${character.name} uses an item!`);
-				break;
-		}
+		match(action.type)
+			.with(ActionType.ATTACK, () => this.executeAttack(character))
+			.with(ActionType.DEFEND, () => console.log(`${character.name} defends!`))
+			.with(ActionType.SKILL, () => this.executeSkill(character, action.skillId!))
+			.with(ActionType.ITEM, () => console.log(`${character.name} uses an item!`))
+			.exhaustive();
+	}
+
+	private findCharacterById(id: string): Character | undefined {
+		const allCharacters = [...this.playerParty, ...this.enemyParty];
+		return allCharacters.find((c) => c.id === id);
 	}
 
 	private executeAttack(character: Character) {
 		const damage = Math.floor(Math.random() * 30) + 10;
 		const action = character.selectedAction!;
 
-		if (action.targetId) {
-			// Find the specific target
-			const allCharacters = [...this.playerParty, ...this.enemyParty];
-			const target = allCharacters.find((c) => c.id === action.targetId);
+		const target = this.findCharacterById(action.targetId!); // targetId is guaranteed to be set now
 
-			if (target) {
-				target.currentHP = Math.max(0, target.currentHP - damage);
+		if (target) {
+			this.handleCharacterDamage(target, damage);
 
-				if (target.currentHP <= 0) {
-					target.isAlive = false;
-				}
+			console.log(
+				`${character.name} attacks ${target.name} for ${damage} damage!`,
+			);
+			this.updatePlayerDisplay();
+			this.updateEnemyDisplay();
+		}
+	}
 
-				console.log(
-					`${character.name} attacks ${target.name} for ${damage} damage!`,
-				);
-				this.updatePlayerDisplay();
-				this.updateEnemyDisplay();
-			}
-		} else {
-			// Fallback to random target (for enemies without target selection)
-			if (character.isPlayer) {
-				const livingEnemies = this.enemyParty.filter((e) => e.isAlive);
-				const target =
-					livingEnemies[Math.floor(Math.random() * livingEnemies.length)];
-				target.currentHP = Math.max(0, target.currentHP - damage);
-
-				if (target.currentHP <= 0) {
-					target.isAlive = false;
-				}
-
-				console.log(
-					`${character.name} attacks ${target.name} for ${damage} damage!`,
-				);
-				this.updateEnemyDisplay();
-			} else {
-				const livingPlayers = this.playerParty.filter((p) => p.isAlive);
-				const target =
-					livingPlayers[Math.floor(Math.random() * livingPlayers.length)];
-				target.currentHP = Math.max(0, target.currentHP - damage);
-
-				if (target.currentHP <= 0) {
-					target.isAlive = false;
-				}
-
-				console.log(
-					`${character.name} attacks ${target.name} for ${damage} damage!`,
-				);
-				this.updatePlayerDisplay();
-			}
+	private handleCharacterDamage(character: Character, damage: number) {
+		character.currentHP = Math.max(0, character.currentHP - damage);
+		if (character.currentHP <= 0) {
+			character.isAlive = false;
 		}
 	}
 
@@ -663,62 +649,20 @@ export class BattleScene extends BaseScene {
 		character.currentMP -= skill.mpCost;
 		const action = character.selectedAction!;
 
-		if (action.targetId) {
-			// Find the specific target
-			const allCharacters = [...this.playerParty, ...this.enemyParty];
-			const target = allCharacters.find((c) => c.id === action.targetId);
+		const target = this.findCharacterById(action.targetId!); // targetId is guaranteed to be set now
 
-			if (target) {
-				if (skill.damage) {
-					target.currentHP = Math.max(0, target.currentHP - skill.damage);
-
-					if (target.currentHP <= 0) {
-						target.isAlive = false;
-					}
-
-					console.log(
-						`${character.name} casts ${skill.name} on ${target.name} for ${skill.damage} damage!`,
-					);
-				} else if (skill.healing) {
-					target.currentHP = Math.min(
-						target.maxHP,
-						target.currentHP + skill.healing,
-					);
-					console.log(
-						`${character.name} casts ${skill.name} on ${target.name} for ${skill.healing} healing!`,
-					);
-				}
-			}
-		} else {
-			// Fallback to random target (shouldn't happen with new system)
+		if (target) {
 			if (skill.damage) {
-				const livingEnemies = this.enemyParty.filter((e) => e.isAlive);
-				const target =
-					livingEnemies[Math.floor(Math.random() * livingEnemies.length)];
-				target.currentHP = Math.max(0, target.currentHP - skill.damage);
-
-				if (target.currentHP <= 0) {
-					target.isAlive = false;
-				}
+				this.handleCharacterDamage(target, skill.damage);
 
 				console.log(
 					`${character.name} casts ${skill.name} on ${target.name} for ${skill.damage} damage!`,
 				);
 			} else if (skill.healing) {
-				const livingPlayers = this.playerParty.filter(
-					(p) => p.isAlive && p.currentHP < p.maxHP,
+				this.handleCharacterHealing(target, skill.healing);
+				console.log(
+					`${character.name} casts ${skill.name} on ${target.name} for ${skill.healing} healing!`,
 				);
-				if (livingPlayers.length > 0) {
-					const target =
-						livingPlayers[Math.floor(Math.random() * livingPlayers.length)];
-					target.currentHP = Math.min(
-						target.maxHP,
-						target.currentHP + skill.healing,
-					);
-					console.log(
-						`${character.name} casts ${skill.name} on ${target.name} for ${skill.healing} healing!`,
-					);
-				}
 			}
 		}
 
@@ -726,28 +670,37 @@ export class BattleScene extends BaseScene {
 		this.updateEnemyDisplay();
 	}
 
+	private handleCharacterHealing(character: Character, healing: number) {
+		character.currentHP = Math.min(
+			character.maxHP,
+			character.currentHP + healing,
+		);
+	}
+
 	private updatePlayerDisplay() {
 		this.playerParty.forEach((character, index) => {
+			const { currentHP, currentMP } = character;
 			if (this.playerHPBars[index]) {
-				this.playerHPBars[index].setValue(character.currentHP, true);
+				this.playerHPBars[index].setValue(currentHP, true);
 			}
 			if (this.playerMPBars[index]) {
-				this.playerMPBars[index].setValue(character.currentMP, true);
+				this.playerMPBars[index].setValue(currentMP, true);
 			}
 		});
 	}
 
 	private updateEnemyDisplay() {
 		this.enemyParty.forEach((enemy, index) => {
+			const { currentHP } = enemy;
 			if (this.enemyHPBars[index]) {
-				this.enemyHPBars[index].setValue(enemy.currentHP, true);
+				this.enemyHPBars[index].setValue(currentHP, true);
 			}
 		});
 	}
 
 	private checkBattleEnd(): boolean {
-		const livingPlayers = this.playerParty.filter((p) => p.isAlive);
-		const livingEnemies = this.enemyParty.filter((e) => e.isAlive);
+		const livingPlayers = filter(this.playerParty, (p) => p.isAlive);
+		const livingEnemies = filter(this.enemyParty, (e) => e.isAlive);
 
 		if (livingPlayers.length === 0) {
 			console.log("Game Over! All players defeated.");
@@ -769,9 +722,11 @@ export class BattleScene extends BaseScene {
 		});
 
 		// Recalculate turn order (in case characters died)
-		this.turnOrder = [...this.playerParty, ...this.enemyParty]
-			.filter((char) => char.isAlive)
-			.sort((a, b) => b.speed - a.speed);
+		this.turnOrder = pipe(
+			[...this.playerParty, ...this.enemyParty],
+			filter((char) => char.isAlive),
+			sort((a, b) => b.speed - a.speed),
+		);
 		
 		this.turnIndex = 0; // Reset for the new turn
 
@@ -786,6 +741,10 @@ export class BattleScene extends BaseScene {
 		
 		// Let the FSM know the turn is over, which should return it to 'idle'
 		this.focusManager.sendEvent({ type: 'endTurn' });
+	}
+
+	private calculateMenuHeight(itemCount: number): number {
+		return Math.min(120, itemCount * 25 + 40);
 	}
 
 	destroy() {

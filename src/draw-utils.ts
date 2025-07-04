@@ -1,52 +1,55 @@
-import { Palette } from './palette';
-import { type FontKey, getFontStyle, fonts } from './fonts';
-import { ColorUtils } from './color-utils';
-
-import iconUrl from './assets/icons_full_16.png?url'; // 16 x 16 sprite sheet of icons. Each row has 16 icons.
+import iconUrl from "./assets/icons_full_16.png?url"; // 16 x 16 sprite sheet of icons. Each row has 16 icons.
+import { ColorUtils } from "./color-utils";
+import { type FontKey, fonts, getFontStyle } from "./fonts";
+import { Palette } from "./palette";
 
 export interface WindowSkinOptions {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  borderColor?: string;
-  fillColor?: string;
-  cornerRadius?: number;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	borderColor?: string;
+	fillColor?: string;
+	cornerRadius?: number;
 }
 
 export interface GaugeOptions {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  value: number;
-  maxValue: number;
-  borderColor?: string;
-  backgroundFillColor?: string;
-  gradientStart?: string;
-  gradientEnd?: string;
-  fontKey?: FontKey;
-  showValue?: boolean;
-  showMaxValue?: boolean;
-  quantize?: boolean;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	value: number;
+	maxValue: number;
+	borderColor?: string;
+	backgroundFillColor?: string;
+	gradientStart?: string;
+	gradientEnd?: string;
+	fontKey?: FontKey;
+	showValue?: boolean;
+	showMaxValue?: boolean;
+	quantize?: boolean;
 }
 
 export interface DitherOptions {
-  intensity?: number;
-  paletteColors?: string[];
+	intensity?: number;
+	paletteColors?: string[];
 }
 
 // Stylized dithering shader with GPU-friendly approximation
-class StylizedDitherShader extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
-  private _intensity: number = 1.0;
-  private _resolution: { width: number; height: number } = { width: 800, height: 600 };
+class StylizedDitherShader extends Phaser.Renderer.WebGL.Pipelines
+	.PostFXPipeline {
+	private _intensity: number = 1.0;
+	private _resolution: { width: number; height: number } = {
+		width: 800,
+		height: 600,
+	};
 
-  constructor(game: Phaser.Game) {
-    super({
-      game,
-      name: 'StylizedDither',
-      renderTarget: true,
-      fragShader: `
+	constructor(game: Phaser.Game) {
+		super({
+			game,
+			name: "StylizedDither",
+			renderTarget: true,
+			fragShader: `
 precision mediump float;
 
 uniform sampler2D uMainSampler;
@@ -56,31 +59,60 @@ uniform vec3      paletteColors[32];
 
 varying vec2 outTexCoord;
 
-/* -------- nearest-colour quantiser -------------------------------------- */
+/* -------- sRGB → OKLab conversion utilities ---------------------------- */
+vec3 srgbToLinear(vec3 c)
+{
+    vec3 cutoff = vec3(0.04045);
+    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(cutoff, c));
+}
+
+vec3 rgbToOklab(vec3 c)
+{
+    vec3 lrgb = srgbToLinear(c);
+
+    // linear RGB → LMS
+    float l = 0.4122214708 * lrgb.r + 0.5363325363 * lrgb.g + 0.0514459929 * lrgb.b;
+    float m = 0.2119034982 * lrgb.r + 0.6806995451 * lrgb.g + 0.1073969566 * lrgb.b;
+    float s = 0.0883024619 * lrgb.r + 0.2817188376 * lrgb.g + 0.6299787005 * lrgb.b;
+
+    // cube-root and final OKLab transform
+    vec3 lms = vec3(pow(l, 1.0/3.0), pow(m, 1.0/3.0), pow(s, 1.0/3.0));
+
+    return vec3(
+        0.2104542553 * lms.x + 0.7936177850 * lms.y - 0.0040720468 * lms.z,
+        1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z,
+        0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z
+    );
+}
+
+/* -------- nearest-colour quantiser in OKLab space ----------------------- */
 vec3 quantizeToNearestPalette(vec3 c)
 {
+    vec3 labC = rgbToOklab(c);
     float bestDist = 999.0;
     vec3  bestCol  = paletteColors[0];
 
-    // fixed-length loop so the compiler can unroll
     for (int i = 0; i < 32; ++i)
     {
-        vec3 p = paletteColors[i];
-        float d = length(c - p);      // Euclidean distance in RGB
-        if (d < bestDist) { bestDist = d; bestCol = p; }
+        vec3 labP = rgbToOklab(paletteColors[i]);
+        float d = length(labC - labP);
+        if (d < bestDist) { bestDist = d; bestCol = paletteColors[i]; }
     }
     return bestCol;
 }
 
-/* -------- 4×4 Bayer threshold, arithmetic version (0-0.9375) ------------ */
-/* Formula: threshold = (4*x + 5*y) mod 16  / 16
-   This produces the classic 4×4 Bayer pattern reordered, but any
-   permutation of 0-15 works equally well for ordered dithering.           */
-float bayer4(vec2 pixPos)
+/* -------- blue-noise threshold function --------------------------------- */
+/* Generates a pseudo–blue-noise value in the range 0-1 based on pixel
+   position using a simple hash function (adapted from Inigo Quilez).
+   While not a true pre-computed blue-noise pattern, it concentrates most
+   energy in high frequencies, avoiding the obvious grid patterns of Bayer
+   matrices and producing a visually pleasing stochastic dither.          */
+float blueNoise(vec2 pixPos)
 {
-    vec2 p = mod(pixPos, 4.0);              // pixel inside the 4×4 tile
-    float v = mod(4.0 * p.x + 5.0 * p.y, 16.0);
-    return v / 16.0;                        // 0 … 0.9375
+    // Integer pixel coordinates ‑ reduces correlation between neighbours
+    vec2 ip = floor(pixPos);
+    // Hash → fract(sin(dot(..)))*const
+    return fract( sin( dot(ip ,vec2(127.1, 311.7)) ) * 43758.5453 );
 }
 
 void main()
@@ -93,8 +125,8 @@ void main()
         return;
     }
 
-    /* --- ordered-dither bias --------------------------------------------- */
-    float t = bayer4(pixPos);               // 0-1 threshold
+    /* --- blue-noise dither bias ------------------------------------------ */
+    float t = blueNoise(pixPos);            // 0-1 threshold
     const float scale = 1.0 / 255.0;        // ±1 step in 8-bit space
     vec3  nudged = src.rgb + (t - 0.5) * (2.0 * scale * intensity);
 
@@ -102,319 +134,377 @@ void main()
     vec3 quantised = quantizeToNearestPalette(clamp(nudged, 0.0, 1.0));
     gl_FragColor   = vec4(mix(src.rgb, quantised, intensity), src.a);
 }
-`
-    });
-  }
+`,
+		});
+	}
 
-  onPreRender(): void {
-    this.set1f('intensity', this._intensity);
-    this.set2f('resolution', this._resolution.width, this._resolution.height);
-    
-    // Set palette colors
-    const paletteColors = DrawUtils.getPaletteColorsForShader();
-    this.set3fv('paletteColors', new Float32Array(paletteColors));
-  }
+	onPreRender(): void {
+		this.set1f("intensity", this._intensity);
+		this.set2f("resolution", this._resolution.width, this._resolution.height);
 
-  get intensity(): number {
-    return this._intensity;
-  }
+		// Set palette colors
+		const paletteColors = DrawUtils.getPaletteColorsForShader();
+		this.set3fv("paletteColors", new Float32Array(paletteColors));
+	}
 
-  set intensity(value: number) {
-    this._intensity = value;
-  }
+	get intensity(): number {
+		return this._intensity;
+	}
 
-  get resolution(): { width: number; height: number } {
-    return this._resolution;
-  }
+	set intensity(value: number) {
+		this._intensity = value;
+	}
 
-  set resolution(value: { width: number; height: number }) {
-    this._resolution = value;
-  }
+	get resolution(): { width: number; height: number } {
+		return this._resolution;
+	}
+
+	set resolution(value: { width: number; height: number }) {
+		this._resolution = value;
+	}
 }
 
-
 export class DrawUtils {
-  static readonly ICONS_KEY = 'icons';
-  static readonly ICON_SIZE = 16;
+	static readonly ICONS_KEY = "icons";
+	static readonly ICON_SIZE = 16;
 
-  // Draw retro JRPG windowskin with rounded corners
-  static drawWindowSkin(
-    graphics: Phaser.GameObjects.Graphics,
-    options: WindowSkinOptions
-  ): void {
-    const {
-      x,
-      y,
-      width,
-      height,
-      borderColor = Palette.WHITE,
-      fillColor = Palette.DARK_PURPLE,
-      cornerRadius = 2
-    } = options;
+	// Draw retro JRPG windowskin with rounded corners
+	static drawWindowSkin(
+		graphics: Phaser.GameObjects.Graphics,
+		options: WindowSkinOptions,
+	): void {
+		const {
+			x,
+			y,
+			width,
+			height,
+			borderColor = Palette.WHITE,
+			fillColor = Palette.DARK_PURPLE,
+			cornerRadius = 2,
+		} = options;
 
-    graphics.clear();
-    
-    // Fill background
-    graphics.fillStyle(Phaser.Display.Color.HexStringToColor(fillColor).color);
-    graphics.fillRoundedRect(x, y, width, height, cornerRadius);
+		graphics.clear();
 
-    // Draw border - single pixel width
-    graphics.lineStyle(1, Phaser.Display.Color.HexStringToColor(borderColor).color);
-    graphics.strokeRoundedRect(x, y, width, height, cornerRadius);
-  }
+		// Fill background
+		graphics.fillStyle(Phaser.Display.Color.HexStringToColor(fillColor).color);
+		graphics.fillRoundedRect(x, y, width, height, cornerRadius);
 
-  // Create gradient colors with optional quantization
-  static createGradientColors(
-    startColor: string,
-    endColor: string,
-    steps: number,
-    quantize: boolean = true
-  ): string[] {
-    const colors: string[] = [];
-    
-    for (let i = 0; i < steps; i++) {
-      const t = i / (steps - 1);
-      const interpolated = ColorUtils.interpolateOklab(startColor, endColor, t);
-      const finalColor = quantize ? ColorUtils.quantizeToPalette(interpolated) : 
-        `#${interpolated.r.toString(16).padStart(2, '0')}${interpolated.g.toString(16).padStart(2, '0')}${interpolated.b.toString(16).padStart(2, '0')}`;
-      colors.push(finalColor);
-    }
-    
-    return colors;
-  }
+		// Draw border - single pixel width
+		graphics.lineStyle(
+			1,
+			Phaser.Display.Color.HexStringToColor(borderColor).color,
+		);
+		graphics.strokeRoundedRect(x, y, width, height, cornerRadius);
+	}
 
-  // Draw gauge with gradient and numbers
-  static drawGauge(
-    scene: Phaser.Scene,
-    graphics: Phaser.GameObjects.Graphics,
-    options: GaugeOptions
-  ): Phaser.GameObjects.Text | null {
-    const {
-      x,
-      y,
-      width,
-      height,
-      value,
-      maxValue,
-      borderColor = Palette.WHITE,
-      backgroundFillColor = Palette.DARK_PURPLE,
-      gradientStart = Palette.RED,
-      gradientEnd = Palette.GREEN,
-      fontKey = 'retro',
-      showValue = true,
-      showMaxValue = false,
-      quantize = true
-    } = options;
+	// Create gradient colors with optional quantization
+	static createGradientColors(
+		startColor: string,
+		endColor: string,
+		steps: number,
+		quantize: boolean = true,
+	): string[] {
+		const colors: string[] = [];
 
-    const fillPercentage = Math.max(0, Math.min(1, value / maxValue));
-    const fillWidth = Math.floor((width - 2) * fillPercentage);
+		for (let i = 0; i < steps; i++) {
+			const t = i / (steps - 1);
+			const interpolated = ColorUtils.interpolateOklab(startColor, endColor, t);
+			const finalColor = quantize
+				? ColorUtils.quantizeToPalette(interpolated)
+				: `#${interpolated.r.toString(16).padStart(2, "0")}${interpolated.g.toString(16).padStart(2, "0")}${interpolated.b.toString(16).padStart(2, "0")}`;
+			colors.push(finalColor);
+		}
 
-    graphics.clear();
+		return colors;
+	}
 
-    // Background fill
-    graphics.fillStyle(Phaser.Display.Color.HexStringToColor(backgroundFillColor).color);
-    graphics.fillRect(x, y, width, height);
+	// Draw gauge with gradient and numbers
+	static drawGauge(
+		scene: Phaser.Scene,
+		graphics: Phaser.GameObjects.Graphics,
+		options: GaugeOptions,
+	): Phaser.GameObjects.Text | null {
+		const {
+			x,
+			y,
+			width,
+			height,
+			value,
+			maxValue,
+			borderColor = Palette.WHITE,
+			backgroundFillColor = Palette.DARK_PURPLE,
+			gradientStart = Palette.RED,
+			gradientEnd = Palette.GREEN,
+			fontKey = "retro",
+			showValue = true,
+			showMaxValue = false,
+			quantize = true,
+		} = options;
 
-    // Create gradient for gauge fill
-    if (fillWidth > 0) {
-      const gradientSteps = Math.max(1, fillWidth);
-      const gradientColors = this.createGradientColors(gradientStart, gradientEnd, gradientSteps, quantize);
-      
-      // Draw gradient fill pixel by pixel for retro look
-      for (let i = 0; i < fillWidth; i++) {
-        const colorIndex = Math.floor((i / fillWidth) * (gradientColors.length - 1));
-        const color = gradientColors[colorIndex];
-        graphics.fillStyle(Phaser.Display.Color.HexStringToColor(color).color);
-        graphics.fillRect(x + 1 + i, y + 1, 1, height - 2);
-      }
-    }
+		const fillPercentage = Math.max(0, Math.min(1, value / maxValue));
+		const fillWidth = Math.floor((width - 2) * fillPercentage);
 
-    // Border
-    graphics.lineStyle(1, Phaser.Display.Color.HexStringToColor(borderColor).color);
-    graphics.strokeRect(x, y, width, height);
+		graphics.clear();
 
-    // Add text if requested
-    if (showValue || showMaxValue) {
-      const textContent = showMaxValue ? `${value}/${maxValue}` : `${value}`;
-      const textStyle = getFontStyle(fontKey);
-      const fontConfig = fonts[fontKey];
-      
-      const text = scene.add.text(
-        x + width + 4,
-        y + (height - fontConfig.size) / 2,
-        textContent,
-        textStyle
-      );
-      
-      return text;
-    }
+		// Background fill
+		graphics.fillStyle(
+			Phaser.Display.Color.HexStringToColor(backgroundFillColor).color,
+		);
+		graphics.fillRect(x, y, width, height);
 
-    return null;
-  }
+		// Create gradient for gauge fill
+		if (fillWidth > 0) {
+			const gradientSteps = Math.max(1, fillWidth);
+			const gradientColors = DrawUtils.createGradientColors(
+				gradientStart,
+				gradientEnd,
+				gradientSteps,
+				quantize,
+			);
 
-  /**
-   * Draws an icon from the icon sheet at the specified position.
-   * Assumes `preloadAssets` has been called.
-   * @param scene - The Phaser scene
-   * @param x - X position
-   * @param y - Y position  
-   * @param iconIndex - Index of the icon in the spritesheet
-   * @returns A new `Phaser.GameObjects.Image` instance for the icon.
-   */
-  static drawIcon(
-    scene: Phaser.Scene, 
-    x: number, 
-    y: number, 
-    iconIndex: number
-  ): Phaser.GameObjects.Image {
-    const icon = scene.add.image(x, y, this.ICONS_KEY, iconIndex);
-    return icon;
-  }
+			// Draw gradient fill pixel by pixel for retro look
+			for (let i = 0; i < fillWidth; i++) {
+				const colorIndex = Math.floor(
+					(i / fillWidth) * (gradientColors.length - 1),
+				);
+				const color = gradientColors[colorIndex];
+				graphics.fillStyle(Phaser.Display.Color.HexStringToColor(color).color);
+				graphics.fillRect(x + 1 + i, y + 1, 1, height - 2);
+			}
+		}
 
-  // Helper to create windowskin as a reusable texture
-  static createWindowSkinTexture(
-    scene: Phaser.Scene,
-    key: string,
-    options: WindowSkinOptions
-  ): void {
-    const { width, height } = options;
-    const rt = scene.add.renderTexture(0, 0, width, height);
-    const graphics = scene.add.graphics();
-    
-    this.drawWindowSkin(graphics, { ...options, x: 0, y: 0 });
-    rt.draw(graphics);
-    rt.saveTexture(key);
-    
-    graphics.destroy();
-    rt.destroy();
-  }
+		// Border
+		graphics.lineStyle(
+			1,
+			Phaser.Display.Color.HexStringToColor(borderColor).color,
+		);
+		graphics.strokeRect(x, y, width, height);
 
-  // Convert hex color to normalized RGB values for shaders
-  static hexToVec3(hex: string): [number, number, number] {
-    // Remove the # if present
-    const cleanHex = hex.replace('#', '');
-    
-    // Parse RGB components
-    const r = parseInt(cleanHex.substring(0, 2), 16) / 255;
-    const g = parseInt(cleanHex.substring(2, 4), 16) / 255;
-    const b = parseInt(cleanHex.substring(4, 6), 16) / 255;
-    
-    return [r, g, b];
-  }
+		// Add text if requested
+		if (showValue || showMaxValue) {
+			const textContent = showMaxValue ? `${value}/${maxValue}` : `${value}`;
+			const textStyle = getFontStyle(fontKey);
+			const fontConfig = fonts[fontKey];
 
-  // Get all palette colors as vec3 array for shader uniforms
-  static getPaletteColorsForShader(): number[] {
-    const paletteVec3: number[] = [];
-    const paletteColors = [
-      Palette.BLACK, Palette.DARK_PURPLE, Palette.DARK_BURGUNDY, Palette.BROWN,
-      Palette.RUST, Palette.ORANGE, Palette.SAND, Palette.BEIGE,
-      Palette.YELLOW, Palette.LIME, Palette.GREEN, Palette.DARK_GREEN,
-      Palette.OLIVE, Palette.DARK_OLIVE, Palette.DARK_TEAL, Palette.INDIGO,
-      Palette.BLUE, Palette.BRIGHT_BLUE, Palette.SKY_BLUE, Palette.CYAN,
-      Palette.LIGHT_BLUE, Palette.WHITE, Palette.GRAY, Palette.DARK_GRAY,
-      Palette.CHARCOAL, Palette.DARK_CHARCOAL, Palette.PURPLE, Palette.RED,
-      Palette.PINK, Palette.MAGENTA, Palette.YELLOW_GREEN, Palette.GOLD
-    ];
+			const text = scene.add.text(
+				x + width + 4,
+				y + (height - fontConfig.size) / 2,
+				textContent,
+				textStyle,
+			);
 
-    paletteColors.forEach(hex => {
-      const [r, g, b] = this.hexToVec3(hex);
-      paletteVec3.push(r, g, b);
-    });
+			return text;
+		}
 
-    return paletteVec3;
-  }
+		return null;
+	}
 
-  /**
-   * Preloads assets required by DrawUtils, such as the icon sheet.
-   * Call this in your scene's `preload()` method.
-   */
-  static preloadAssets(scene: Phaser.Scene): void {
-    if (!scene.textures.exists(this.ICONS_KEY)) {
-      scene.load.spritesheet(this.ICONS_KEY, iconUrl, {
-        frameWidth: this.ICON_SIZE,
-        frameHeight: this.ICON_SIZE
-      });
-    }
-  }
+	/**
+	 * Draws an icon from the icon sheet at the specified position.
+	 * Assumes `preloadAssets` has been called.
+	 * @param scene - The Phaser scene
+	 * @param x - X position
+	 * @param y - Y position
+	 * @param iconIndex - Index of the icon in the spritesheet
+	 * @returns A new `Phaser.GameObjects.Image` instance for the icon.
+	 */
+	static drawIcon(
+		scene: Phaser.Scene,
+		x: number,
+		y: number,
+		iconIndex: number,
+	): Phaser.GameObjects.Image {
+		const icon = scene.add.image(x, y, DrawUtils.ICONS_KEY, iconIndex);
+		return icon;
+	}
 
-  // Register stylized dithering shader with the renderer
-  static registerStylizedDitherShader(game: Phaser.Game): void {
-    const renderer = game.renderer;
-    
-    if (renderer.type === Phaser.WEBGL) {
-      const webglRenderer = renderer as Phaser.Renderer.WebGL.WebGLRenderer;
-      
-      try {
-        // Register shader using the pipeline manager's class registration method
-        webglRenderer.pipelines.addPostPipeline('StylizedDither', StylizedDitherShader);
-        
-        console.log('Stylized dithering shader registered successfully');
-      } catch (error) {
-        console.error('Failed to register stylized dithering shader:', error);
-      }
-    } else {
-      console.warn('WebGL renderer not available for stylized dithering shader');
-    }
-  }
+	// Helper to create windowskin as a reusable texture
+	static createWindowSkinTexture(
+		scene: Phaser.Scene,
+		key: string,
+		options: WindowSkinOptions,
+	): void {
+		const { width, height } = options;
+		const rt = scene.add.renderTexture(0, 0, width, height);
+		const graphics = scene.add.graphics();
 
-  // Apply stylized dithering to a sprite or image
-  static applyStylizedDither(
-    gameObject: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite,
-    options: DitherOptions = {}
-  ): boolean {
-    const { intensity = 1.0 } = options;
-    const renderer = gameObject.scene.game.renderer;
-    
-    if (renderer.type !== Phaser.WEBGL) {
-      console.warn('Stylized dithering shader requires WebGL renderer');
-      return false;
-    }
+		DrawUtils.drawWindowSkin(graphics, { ...options, x: 0, y: 0 });
+		rt.draw(graphics);
+		rt.saveTexture(key);
 
-    try {
-      // Apply the post-pipeline to the game object
-      gameObject.setPostPipeline('StylizedDither');
+		graphics.destroy();
+		rt.destroy();
+	}
 
-      // Get the shader instance and set properties
-      const shader = gameObject.getPostPipeline('StylizedDither') as StylizedDitherShader;
-      if (!shader) {
-        console.warn('StylizedDither shader not registered. Call registerStylizedDitherShader() first.');
-        return false;
-      }
-      
-      // Set shader properties - uniforms will be set in onPreRender
-      shader.intensity = intensity;
-      shader.resolution = { width: gameObject.width, height: gameObject.height };
-      
-      return true;
-    } catch (error) {
-      console.error('Failed to apply stylized dithering:', error);
-      return false;
-    }
-  }
+	// Convert hex color to normalized RGB values for shaders
+	static hexToVec3(hex: string): [number, number, number] {
+		// Remove the # if present
+		const cleanHex = hex.replace("#", "");
 
+		// Parse RGB components
+		const r = parseInt(cleanHex.substring(0, 2), 16) / 255;
+		const g = parseInt(cleanHex.substring(2, 4), 16) / 255;
+		const b = parseInt(cleanHex.substring(4, 6), 16) / 255;
 
-  // Remove stylized dithering from a game object
-  static removeStylizedDithering(gameObject: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite): void {
-    gameObject.resetPipeline();
-  }
+		return [r, g, b];
+	}
 
-  // Apply stylized dithering to all sprites in a container or group
-  static applyStylizedDitherToGroup(
-    group: Phaser.GameObjects.Container | Phaser.GameObjects.Group,
-    options: DitherOptions = {}
-  ): void {
-    if (group instanceof Phaser.GameObjects.Container) {
-      group.each((child: Phaser.GameObjects.GameObject) => {
-        if (child instanceof Phaser.GameObjects.Image || child instanceof Phaser.GameObjects.Sprite) {
-          this.applyStylizedDither(child, options);
-        }
-      });
-    } else if (group instanceof Phaser.GameObjects.Group) {
-      group.children.entries.forEach((child: Phaser.GameObjects.GameObject) => {
-        if (child instanceof Phaser.GameObjects.Image || child instanceof Phaser.GameObjects.Sprite) {
-          this.applyStylizedDither(child, options);
-        }
-      });
-    }
-  }
+	// Get all palette colors as vec3 array for shader uniforms
+	static getPaletteColorsForShader(): number[] {
+		const paletteVec3: number[] = [];
+		const paletteColors = [
+			Palette.BLACK,
+			Palette.DARK_PURPLE,
+			Palette.DARK_BURGUNDY,
+			Palette.BROWN,
+			Palette.RUST,
+			Palette.ORANGE,
+			Palette.SAND,
+			Palette.BEIGE,
+			Palette.YELLOW,
+			Palette.LIME,
+			Palette.GREEN,
+			Palette.DARK_GREEN,
+			Palette.OLIVE,
+			Palette.DARK_OLIVE,
+			Palette.DARK_TEAL,
+			Palette.INDIGO,
+			Palette.BLUE,
+			Palette.BRIGHT_BLUE,
+			Palette.SKY_BLUE,
+			Palette.CYAN,
+			Palette.LIGHT_BLUE,
+			Palette.WHITE,
+			Palette.GRAY,
+			Palette.DARK_GRAY,
+			Palette.CHARCOAL,
+			Palette.DARK_CHARCOAL,
+			Palette.PURPLE,
+			Palette.RED,
+			Palette.PINK,
+			Palette.MAGENTA,
+			Palette.YELLOW_GREEN,
+			Palette.GOLD,
+		];
+
+		paletteColors.forEach((hex) => {
+			const [r, g, b] = DrawUtils.hexToVec3(hex);
+			paletteVec3.push(r, g, b);
+		});
+
+		return paletteVec3;
+	}
+
+	/**
+	 * Preloads assets required by DrawUtils, such as the icon sheet.
+	 * Call this in your scene's `preload()` method.
+	 */
+	static preloadAssets(scene: Phaser.Scene): void {
+		if (!scene.textures.exists(DrawUtils.ICONS_KEY)) {
+			scene.load.spritesheet(DrawUtils.ICONS_KEY, iconUrl, {
+				frameWidth: DrawUtils.ICON_SIZE,
+				frameHeight: DrawUtils.ICON_SIZE,
+			});
+		}
+	}
+
+	// Register stylized dithering shader with the renderer
+	static registerStylizedDitherShader(game: Phaser.Game): void {
+		const renderer = game.renderer;
+
+		if (renderer.type === Phaser.WEBGL) {
+			const webglRenderer = renderer as Phaser.Renderer.WebGL.WebGLRenderer;
+
+			try {
+				// Register shader using the pipeline manager's class registration method
+				webglRenderer.pipelines.addPostPipeline(
+					"StylizedDither",
+					StylizedDitherShader,
+				);
+
+				console.log("Stylized dithering shader registered successfully");
+			} catch (error) {
+				console.error("Failed to register stylized dithering shader:", error);
+			}
+		} else {
+			console.warn(
+				"WebGL renderer not available for stylized dithering shader",
+			);
+		}
+	}
+
+	// Apply stylized dithering to a sprite or image
+	static applyStylizedDither(
+		gameObject: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite,
+		options: DitherOptions = {},
+	): boolean {
+		const { intensity = 1.0 } = options;
+		const renderer = gameObject.scene.game.renderer;
+
+		if (renderer.type !== Phaser.WEBGL) {
+			console.warn("Stylized dithering shader requires WebGL renderer");
+			return false;
+		}
+
+		try {
+			// Apply the post-pipeline to the game object
+			gameObject.setPostPipeline("StylizedDither");
+
+			// Get the shader instance and set properties
+			const shader = gameObject.getPostPipeline(
+				"StylizedDither",
+			) as StylizedDitherShader;
+			if (!shader) {
+				console.warn(
+					"StylizedDither shader not registered. Call registerStylizedDitherShader() first.",
+				);
+				return false;
+			}
+
+			// Set shader properties - uniforms will be set in onPreRender
+			shader.intensity = intensity;
+			shader.resolution = {
+				width: gameObject.width,
+				height: gameObject.height,
+			};
+
+			return true;
+		} catch (error) {
+			console.error("Failed to apply stylized dithering:", error);
+			return false;
+		}
+	}
+
+	// Remove stylized dithering from a game object
+	static removeStylizedDithering(
+		gameObject: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite,
+	): void {
+		gameObject.resetPipeline();
+	}
+
+	// Apply stylized dithering to all sprites in a container or group
+	static applyStylizedDitherToGroup(
+		group: Phaser.GameObjects.Container | Phaser.GameObjects.Group,
+		options: DitherOptions = {},
+	): void {
+		if (group instanceof Phaser.GameObjects.Container) {
+			group.each((child: Phaser.GameObjects.GameObject) => {
+				if (
+					child instanceof Phaser.GameObjects.Image ||
+					child instanceof Phaser.GameObjects.Sprite
+				) {
+					DrawUtils.applyStylizedDither(child, options);
+				}
+			});
+		} else if (group instanceof Phaser.GameObjects.Group) {
+			group.children.entries.forEach((child: Phaser.GameObjects.GameObject) => {
+				if (
+					child instanceof Phaser.GameObjects.Image ||
+					child instanceof Phaser.GameObjects.Sprite
+				) {
+					DrawUtils.applyStylizedDither(child, options);
+				}
+			});
+		}
+	}
 }

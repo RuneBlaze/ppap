@@ -1,15 +1,15 @@
-import { Window } from './Window';
-import { TextBlock } from './TextBlock';
-import { Palette } from '../../palette';
-import type { WindowSkinOptions } from '../../draw-utils';
+import type { WindowSkinOptions } from "../../draw-utils";
+import { Palette } from "../../palette";
+import { TextBlock } from "./TextBlock";
+import { Window } from "./Window";
 
 export interface ButtonOptions {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  text: string;
-  onPointerUp?: (button: any) => void;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	text: string;
+	onPointerUp?: (button: any) => void;
 }
 
 /**
@@ -18,66 +18,69 @@ export interface ButtonOptions {
  * hover and press states.
  */
 export class Button extends Phaser.GameObjects.Container {
-  private background: Window;
-  private textBlock: TextBlock;
-  private isHovered = false;
+	private background: Window;
+	private textBlock: TextBlock;
+	private isHovered = false;
 
-  constructor(scene: Phaser.Scene, public options: ButtonOptions) {
-    super(scene, options.x, options.y);
+	constructor(
+		scene: Phaser.Scene,
+		public options: ButtonOptions,
+	) {
+		super(scene, options.x, options.y);
 
-    const windowOptions: WindowSkinOptions = {
-      x: 0,
-      y: 0,
-      width: options.width,
-      height: options.height,
-      fillColor: Palette.DARK_PURPLE
-    };
+		const windowOptions: WindowSkinOptions = {
+			x: 0,
+			y: 0,
+			width: options.width,
+			height: options.height,
+			fillColor: Palette.DARK_PURPLE,
+		};
 
-    this.background = new Window(scene, windowOptions);
-    this.add(this.background);
+		this.background = new Window(scene, windowOptions);
+		this.add(this.background);
 
-    this.textBlock = new TextBlock(scene, {
-      x: options.width / 2,
-      y: options.height / 2,
-      text: options.text,
-      fontKey: 'retro',
-      align: 'center'
-    });
-    this.textBlock.setOrigin(0.5);
-    this.add(this.textBlock);
+		this.textBlock = new TextBlock(scene, {
+			x: options.width / 2,
+			y: options.height / 2,
+			text: options.text,
+			fontKey: "retro",
+			align: "center",
+		});
+		this.textBlock.setOrigin(0.5);
+		this.add(this.textBlock);
 
-    this.setSize(options.width, options.height);
-    this.setInteractive({ useHandCursor: true })
-      .on('pointerover', this.handlePointerOver)
-      .on('pointerout', this.handlePointerOut)
-      .on('pointerup', this.handlePointerUp);
+		this.setSize(options.width, options.height);
+		this.setInteractive({ useHandCursor: true })
+			.on("pointerover", this.handlePointerOver)
+			.on("pointerout", this.handlePointerOut)
+			.on("pointerup", this.handlePointerUp);
 
-    scene.add.existing(this);
-  }
+		scene.add.existing(this);
+	}
 
-  private handlePointerOver = () => {
-    this.isHovered = true;
-    this.updateVisualState();
-  };
+	private handlePointerOver = () => {
+		this.isHovered = true;
+		this.updateVisualState();
+	};
 
-  private handlePointerOut = () => {
-    this.isHovered = false;
-    this.updateVisualState();
-  };
+	private handlePointerOut = () => {
+		this.isHovered = false;
+		this.updateVisualState();
+	};
 
-  private handlePointerUp = () => {
-    if (this.options.onPointerUp) {
-      this.options.onPointerUp(this);
-    }
-  };
+	private handlePointerUp = () => {
+		if (this.options.onPointerUp) {
+			this.options.onPointerUp(this);
+		}
+	};
 
-  private updateVisualState() {
-    const fillColor = this.isHovered ? Palette.PURPLE : Palette.DARK_PURPLE;
-    this.background.redraw({ fillColor });
-  }
+	private updateVisualState() {
+		const fillColor = this.isHovered ? Palette.PURPLE : Palette.DARK_PURPLE;
+		this.background.redraw({ fillColor });
+	}
 
-  setFocus(isFocused: boolean) {
-    this.isHovered = isFocused;
-    this.updateVisualState();
-  }
-} 
+	setFocus(isFocused: boolean) {
+		this.isHovered = isFocused;
+		this.updateVisualState();
+	}
+}

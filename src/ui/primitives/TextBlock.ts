@@ -1,14 +1,14 @@
-import { type FontKey, getFontStyle } from '../../fonts';
-import { Palette } from '../../palette';
+import { type FontKey, getFontStyle } from "../../fonts";
+import { Palette } from "../../palette";
 
 export interface TextBlockOptions {
-  x: number;
-  y: number;
-  text: string | string[];
-  fontKey: FontKey;
-  color?: string;
-  wordWrapWidth?: number;
-  align?: 'left' | 'right' | 'center';
+	x: number;
+	y: number;
+	text: string | string[];
+	fontKey: FontKey;
+	color?: string;
+	wordWrapWidth?: number;
+	align?: "left" | "right" | "center";
 }
 
 /**
@@ -19,17 +19,17 @@ export interface TextBlockOptions {
  * to preserve pixel-perfect rendering of pixel fonts.
  */
 export class TextBlock extends Phaser.GameObjects.Text {
-  constructor(scene: Phaser.Scene, options: TextBlockOptions) {
-    // Use the font size defined in fonts.ts - no manual override allowed
-    const style = getFontStyle(options.fontKey);
-    style.color = options.color ?? Palette.WHITE;
-    style.align = options.align ?? 'left';
+	constructor(scene: Phaser.Scene, options: TextBlockOptions) {
+		// Use the font size defined in fonts.ts - no manual override allowed
+		const style = getFontStyle(options.fontKey);
+		style.color = options.color ?? Palette.WHITE;
+		style.align = options.align ?? "left";
 
-    if (options.wordWrapWidth) {
-      style.wordWrap = { width: options.wordWrapWidth, useAdvancedWrap: true };
-    }
+		if (options.wordWrapWidth) {
+			style.wordWrap = { width: options.wordWrapWidth, useAdvancedWrap: true };
+		}
 
-    super(scene, options.x, options.y, options.text, style);
-    scene.add.existing(this);
-  }
-} 
+		super(scene, options.x, options.y, options.text, style);
+		scene.add.existing(this);
+	}
+}

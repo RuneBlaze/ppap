@@ -196,6 +196,10 @@ export class List extends Container {
 		this.handleSelectionChange(enabledIndex);
 	}
 
+	public getWindow(): Window | undefined {
+		return this.window;
+	}
+
 	destroy(fromScene?: boolean) {
 		this.nav.destroy();
 		super.destroy(fromScene);

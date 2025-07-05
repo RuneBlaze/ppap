@@ -105,3 +105,58 @@ gameObject.resetPipeline();
 ## Example Use Cases
 
 The dithering shaders in `draw-utils.ts` demonstrate palette quantization and error diffusion techniques, showing how to process texture data through multiple algorithmic approaches within the fragment shader pipeline.
+
+## Perceptual colour mixing with OKLab
+
+RGB space is not perceptually uniform – the midpoint between two colours often looks skewed toward green or red.  For more natural blends, we convert to the OKLab colour space, mix there, and convert back.
+
+### Shared GLSL snippet
+
+A reusable snippet containing the sRGB ↔ OKLab routines lives in `src/base/ShaderUtils.ts`:
+
+```ts
+export const OKLAB_GLSL_SNIPPET = `
+  // … functions srgbToLinear, linearToSrgb, rgbToOklab, oklabToRgb …
+`;
+```
+
+Because it is plain text you can embed it inside any shader template-literal:
+
+```ts
+import { OKLAB_GLSL_SNIPPET } from "./ShaderUtils";
+
+fragShader: `
+  precision mediump float;
+  uniform sampler2D uMainSampler;
+  varying vec2 outTexCoord;
+
+  ${OKLAB_GLSL_SNIPPET}
+  
+  void main() {
+    // …
+  }
+`
+```
+
+### Example – BrightnessTintShader
+
+`BrightnessTintShader.ts` now mixes colours like this:
+
+```glsl
+vec3 labOrig = rgbToOklab(originalColor.rgb);
+vec3 labTint = rgbToOklab(tintColor);
+vec3 mixedLab = mix(labOrig, labTint, tintIntensity);
+vec3 mixedRgb = oklabToRgb(mixedLab);
+```
+
+The result is a perceptually-linear fade between the sprite's original hue and the target tint.
+
+### Why OKLab?
+
+OKLab is designed so that Euclidean distance reflects perceived colour difference.  Linear interpolation therefore produces smooth transitions that retain luminance and hue balance.  For retro-style palettes (e.g., NES, pico-8) this is especially important: dithering or palette swaps need consistent visual weights to avoid muddy blends.
+
+### Tips
+
+1. Always operate on normalised sRGB values (0-1) before calling `rgbToOklab`.
+2. Keep the snippet at the top of the shader to avoid forward-declaration headaches.
+3. If you only need `rgbToOklab`, you can omit the reverse functions to save bytes – but sharing a single constant promotes consistency across effects.

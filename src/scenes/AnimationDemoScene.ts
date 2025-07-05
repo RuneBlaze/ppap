@@ -1,19 +1,39 @@
-import { DrawUtils } from "../draw-utils";
 import { Palette } from "../palette";
-import { Menu, type MenuItem } from "../ui/components/Menu";
+import { List, type ListItem } from "../ui/components/List";
 import { TextBlock } from "../ui/primitives/TextBlock";
-import { Window } from "../ui/primitives/Window";
+import { Popup, type PopupInner } from "../ui/primitives/Popup";
 import { BaseScene } from "./BaseScene";
 import animPredefs from "../assets/anims.toml";
 import { Anim } from "../base/ps";
+import { BattleSprite } from "../base/BattleSprite";
+import { DrawUtils } from "../draw-utils";
+import Phaser from "phaser";
+import {
+	animationDemoFocusConfig,
+	type AnimationDemoFocusEvent,
+	type AnimationDemoFocusState,
+} from "./AnimationDemoFocusConfig";
+import { GenericFocusStateMachine } from "../ui/state/GenericFocusStateMachine";
 
 export class AnimationDemoScene extends BaseScene {
-	private animationMenu: Menu | null = null;
+	private animationList: List | null = null;
+	private popupList: List | null = null;
+	private focusManager!: GenericFocusStateMachine<
+		AnimationDemoFocusState,
+		AnimationDemoFocusEvent
+	>;
+
 	private availableAnimations: string[] = [];
 	private currentAnimation: string | null = null;
 	private animationTitle: TextBlock | null = null;
-	private enemySprite: Phaser.GameObjects.Sprite | null = null;
+	private enemySprite: BattleSprite | null = null;
 	private currentAnim: Anim | null = null;
+
+	// Timeline visualisation
+	private timelineGraphics: Phaser.GameObjects.Graphics | null = null;
+	private burstEvents: { time: number; intensity: number }[] = [];
+	private readonly timelineWidth: number = 200;
+	private readonly timelineHeight: number = 40;
 
 	constructor() {
 		super("AnimationDemoScene");
@@ -24,12 +44,15 @@ export class AnimationDemoScene extends BaseScene {
 			frameWidth: 64,
 			frameHeight: 64,
 		});
+		DrawUtils.preloadAssets(this);
 	}
 
 	protected createScene() {
 		this.createBackground();
 		this.extractAvailableAnimations();
-		this.createAnimationMenu();
+		this.createAnimationList();
+		this.createPopupList();
+		this.initializeFocusManager();
 		this.createTitle();
 		this.createInstructions();
 		this.createEnemySprite();
@@ -68,71 +91,209 @@ export class AnimationDemoScene extends BaseScene {
 		new TextBlock(this, {
 			x: 20,
 			y: 200,
-			text: "Use arrow keys to navigate, ENTER to select, ESC to close menu",
+			text: "SPACE: Animations, P: Popup Demo, ESC: Close menus",
 			fontKey: "everydayStandard",
 			color: Palette.WHITE.hex,
 		});
+		
+		new TextBlock(this, {
+			x: 20,
+			y: 220,
+			text: "HD-2D: Sprite illumination and flash effects are now primed!",
+			fontKey: "everydayStandard",
+			color: Palette.YELLOW.hex,
+		});
 	}
 
-	private createAnimationMenu() {
-		const animationItems: MenuItem[] = this.availableAnimations.map((animName) => ({
-			text: animName,
-			onSelect: () => this.playAnimation(animName),
-		}));
+	private initializeFocusManager() {
+		this.focusManager = new GenericFocusStateMachine(
+			this,
+			animationDemoFocusConfig,
+		);
+
+		if (this.animationList) {
+			this.focusManager.registerComponent(
+				"animationMenu",
+				this.animationList,
+				() => this.showList(this.animationList),
+				() => this.hideList(this.animationList),
+			);
+		}
+		if (this.popupList) {
+			this.focusManager.registerComponent(
+				"popupMenu",
+				this.popupList,
+				() => this.showList(this.popupList),
+				() => this.hideList(this.popupList),
+			);
+		}
+
+		this.input.keyboard?.on("keydown-SPACE", () => {
+			this.focusManager.sendEvent({ type: "toggleAnimationMenu" });
+		});
+		this.input.keyboard?.on("keydown-P", () => {
+			this.focusManager.sendEvent({ type: "togglePopupMenu" });
+		});
+		this.input.keyboard?.on("keydown-ESC", () => {
+			this.focusManager.sendEvent({ type: "close" });
+		});
+	}
+
+	private createAnimationList() {
+		const animationItems: (ListItem & { onSelect: () => void })[] =
+			this.availableAnimations.map((animName) => ({
+				text: animName,
+				onSelect: () => {
+					this.playAnimation(animName);
+					this.focusManager.sendEvent({ type: "selectItem" });
+				},
+			}));
 
 		animationItems.push({
 			text: "Close Menu",
-			onSelect: () => this.hideAnimationMenu(),
+			onSelect: () => this.focusManager.sendEvent({ type: "close" }),
 		});
 
-		this.animationMenu = new Menu(this, {
+		this.animationList = new List(this, {
 			x: 240,
 			y: 60,
 			width: 160,
 			items: animationItems,
+			onSelect: (_item, index) => {
+				animationItems[index].onSelect();
+			},
+			onCancel: () => this.focusManager.sendEvent({ type: "close" }),
 		});
 
-		this.animationMenu.setVisible(false);
-
-		this.input.keyboard?.on("keydown-SPACE", () => {
-			this.toggleAnimationMenu();
-		});
-
-		this.input.keyboard?.on("keydown-ESC", () => {
-			this.hideAnimationMenu();
-		});
+		this.animationList.setVisible(false);
+		this.animationList.deactivate();
 	}
 
-	private toggleAnimationMenu() {
-		if (!this.animationMenu) return;
+	private createPopupList() {
+		const popupItems: (ListItem & { onSelect: () => void })[] = [
+			{
+				text: "HP Damage Critical",
+				onSelect: () =>
+					this.showPopupDemo({
+						type: "HpChange",
+						delta: -45,
+						isCritical: true,
+					}),
+			},
+			{
+				text: "HP Heal",
+				onSelect: () =>
+					this.showPopupDemo({
+						type: "HpChange",
+						delta: 25,
+						isCritical: false,
+					}),
+			},
+			{
+				text: "MP Drain",
+				onSelect: () =>
+					this.showPopupDemo({
+						type: "MpChange",
+						delta: -15,
+						isCritical: false,
+					}),
+			},
+			{
+				text: "MP Restore Critical",
+				onSelect: () =>
+					this.showPopupDemo({
+						type: "MpChange",
+						delta: 30,
+						isCritical: true,
+					}),
+			},
+			{
+				text: "Status Added (Poison)",
+				onSelect: () =>
+					this.showPopupDemo({
+						type: "StatusChange",
+						addOrRemove: 1,
+						iconIndex: 32,
+					}),
+			},
+			{
+				text: "Status Removed (Shield)",
+				onSelect: () =>
+					this.showPopupDemo({
+						type: "StatusChange",
+						addOrRemove: 0,
+						iconIndex: 48,
+					}),
+			},
+			{
+				text: "Generic Message",
+				onSelect: () =>
+					this.showPopupDemo({ type: "Generic", text: "LEVEL UP!" }),
+			},
+			{
+				text: "Close Menu",
+				onSelect: () => this.focusManager.sendEvent({ type: "close" }),
+			},
+		];
 
-		if (this.animationMenu.visible) {
-			this.hideAnimationMenu();
+		this.popupList = new List(this, {
+			x: 20,
+			y: 60,
+			width: 180,
+			items: popupItems,
+			onSelect: (_item, index) => {
+				const selected = popupItems[index];
+				selected.onSelect();
+				if (selected.text !== "Close Menu") {
+					this.focusManager.sendEvent({ type: "selectItem" });
+				}
+			},
+			onCancel: () => this.focusManager.sendEvent({ type: "close" }),
+		});
+
+		this.popupList.setVisible(false);
+		this.popupList.deactivate();
+	}
+
+	private showList(list: List | null) {
+		if (!list) return;
+		const window = list.getWindow();
+		if (window) {
+			window.fadeIn({ duration: 200 });
+		}
+		list.setVisible(true);
+	}
+
+	private hideList(list: List | null) {
+		if (!list) return;
+		const window = list.getWindow();
+		if (window) {
+			// Let fadeOut handle making it invisible
+			window.fadeOut({ duration: 200 });
 		} else {
-			this.showAnimationMenu();
+			list.setVisible(false);
 		}
 	}
 
-	private showAnimationMenu() {
-		if (!this.animationMenu) return;
+	private showPopupDemo(inner: PopupInner) {
+		if (!this.enemySprite) return;
 
-		const window = this.animationMenu.getWindow();
-		window.fadeIn({ duration: 300 });
-		this.animationMenu.setVisible(true);
-	}
+		const x = this.enemySprite.x + (Math.random() - 0.5) * 40;
+		const y = this.enemySprite.y - 30 + (Math.random() - 0.5) * 20;
 
-	private hideAnimationMenu() {
-		if (!this.animationMenu) return;
-
-		const window = this.animationMenu.getWindow();
-		window.fadeOut({ duration: 300 });
-		this.animationMenu.setVisible(false);
+		new Popup(this, x, y, inner);
 	}
 
 	private createEnemySprite() {
 		const centerX = 213;
 		const centerY = 120;
-		this.enemySprite = this.add.sprite(centerX, centerY, "enemies", 2);
+		this.enemySprite = new BattleSprite(this, centerX, centerY, "enemies", 2);
+
+		// Create timeline graphics just below the sprite
+		if (!this.timelineGraphics) {
+			this.timelineGraphics = this.add.graphics();
+			this.timelineGraphics.setDepth(9999); // above other artefacts
+		}
 	}
 
 	private playAnimation(animName: string) {
@@ -147,21 +308,40 @@ export class AnimationDemoScene extends BaseScene {
 		
 		// Stop any current animation
 		if (this.currentAnim) {
+			// Remove sprite from illumination targets
+			if (this.enemySprite) {
+				this.currentAnim.removeIlluminationTarget(this.enemySprite);
+			}
 			this.currentAnim.dead = true;
 		}
 		
 		// Start the new predefined animation at the sprite's position with looping
 		this.startLoopingAnimation(animName, centerX, centerY);
-		
-		this.hideAnimationMenu();
 	}
 
 	private startLoopingAnimation(animName: string, x: number, y: number) {
 		const playNextIteration = () => {
 			if (this.currentAnimation === animName) { // Only continue if this is still the current animation
 				const newAnim = this.addPredefinedAnim(animName, x, y);
-				if (newAnim) {
+				if (newAnim && this.enemySprite) {
 					this.currentAnim = newAnim;
+					
+					// HD-2D priming: connect sprite to particle illumination
+					this.currentAnim.addIlluminationTarget(this.enemySprite);
+
+					// Reset timeline event log for new iteration
+					this.burstEvents.length = 0;
+					
+					// Connect burst events to sprite flash
+					this.currentAnim.onBurst((intensity) => {
+						console.log("Burst event", intensity);
+						const now = this.time.now;
+						this.burstEvents.push({ time: now, intensity: intensity ?? 1 });
+
+						if (this.enemySprite) {
+							this.enemySprite.triggerFlash(intensity ?? 1.0, 80);
+						}
+					});
 				} else {
 					console.warn(`Failed to create animation: ${animName}`);
 				}
@@ -170,12 +350,13 @@ export class AnimationDemoScene extends BaseScene {
 		
 		playNextIteration();
 	}
+	
 
 	private createInstructionText() {
 		new TextBlock(this, {
 			x: 20,
 			y: 60,
-			text: "Press SPACE to open animation menu",
+			text: "Press SPACE for animations, P for popup demo",
 			fontKey: "everydayStandard",
 			color: Palette.WHITE.hex,
 		});
@@ -189,12 +370,60 @@ export class AnimationDemoScene extends BaseScene {
 	// Override update to handle animation looping
 	update(time: number, delta: number): void {
 		super.update(time, delta);
+		this.updateTimeline();
 		
 		// Check if current animation is dead and restart it for looping
 		if (this.currentAnim && this.currentAnim.dead && this.currentAnimation) {
 			const centerX = 213;
 			const centerY = 120;
 			this.startLoopingAnimation(this.currentAnimation, centerX, centerY);
+		}
+	}
+
+	// ---------------------------------------------------------------------
+	// Timeline rendering helpers
+	// ---------------------------------------------------------------------
+	private updateTimeline() {
+		if (!this.timelineGraphics || !this.enemySprite) return;
+
+		const g = this.timelineGraphics;
+		g.clear();
+
+		const now = this.time.now;
+		const windowMs = 1000; // 1-second window
+
+		// Baseline position under sprite
+		const originX = this.enemySprite.x - this.timelineWidth / 2;
+		const originY = this.enemySprite.y + this.enemySprite.height / 2 + 20;
+
+		// Draw baseline
+		g.lineStyle(1, Palette.WHITE.num, 1);
+		g.strokeLineShape(new Phaser.Geom.Line(originX, originY, originX + this.timelineWidth, originY));
+
+		// Filter events within window
+		this.burstEvents = this.burstEvents.filter(e => now - e.time <= windowMs);
+
+		// Determine max intensity in window for scaling (avoid division by zero)
+		let maxIntensity = 1;
+		for (const e of this.burstEvents) {
+			if (e.intensity > maxIntensity) maxIntensity = e.intensity;
+		}
+
+		// Draw each event
+		for (const e of this.burstEvents) {
+			const age = now - e.time; // 0..windowMs
+			const frac = 1 - age / windowMs; // 0 (old) .. 1 (new)
+			const x = originX + frac * this.timelineWidth;
+			const barHeight = (e.intensity / maxIntensity) * this.timelineHeight;
+
+			g.lineStyle(2, Palette.YELLOW.num, 1);
+			g.strokeLineShape(new Phaser.Geom.Line(x, originY, x, originY - barHeight));
+		}
+	}
+
+	destroy() {
+		if (this.focusManager) {
+			this.focusManager.destroy();
 		}
 	}
 }

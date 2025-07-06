@@ -155,7 +155,7 @@ export abstract class BaseScene extends Phaser.Scene {
 	protected abstract createScene(): void;
 
 	// Flush particle system draw calls every frame.
-	update(time: number, delta: number): void {
+	update(_time: number, delta: number): void {
 		// Update animations
 		this.activeAnims = this.activeAnims.filter((anim) => {
 			if (anim.dead) {

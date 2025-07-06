@@ -34,6 +34,14 @@ export class Window extends Phaser.GameObjects.Graphics {
 		}
 	}
 
+	getWidth(): number {
+		return this.options.width;
+	}
+
+	getHeight(): number {
+		return this.options.height;
+	}
+
 	resize(width: number, height: number) {
 		this.options.width = width;
 		this.options.height = height;

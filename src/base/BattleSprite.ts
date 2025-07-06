@@ -1,6 +1,5 @@
 import Phaser from "phaser";
 import type { IlluminationTarget } from "./ps";
-import { BrightnessTintShader } from "./BrightnessTintShader";
 import { Popup } from "../ui/primitives/Popup";
 
 export class BattleSprite extends Phaser.GameObjects.Sprite implements IlluminationTarget {
@@ -10,23 +9,11 @@ export class BattleSprite extends Phaser.GameObjects.Sprite implements Illuminat
   
   // HD-2D properties
   private flashTween?: Phaser.Tweens.Tween;
-  private tintShader?: BrightnessTintShader;
   
   constructor(scene: Phaser.Scene, x: number, y: number, texture: string, frame?: string | number) {
     super(scene, x, y, texture, frame);
     
     this.sprite = this; // Self-reference for IlluminationTarget interface
-    
-    // Ensure shader is registered
-    BrightnessTintShader.registerShader(scene.game);
-    
-    // Apply the brightness tint shader
-    try {
-      this.setPostPipeline('BrightnessTint');
-      this.tintShader = this.getPostPipeline('BrightnessTint') as BrightnessTintShader;
-    } catch (err) {
-      console.warn("Failed to apply BrightnessTint shader:", err);
-    }
     
     scene.add.existing(this);
   }
@@ -41,27 +28,24 @@ export class BattleSprite extends Phaser.GameObjects.Sprite implements Illuminat
     // }
   }
   
-  triggerFlash(intensity: number = 1.0, duration: number = 40): void {
+  triggerFlash(_intensity: number = 1.0, duration: number = 40): void {
     if (this.flashTween) {
       this.flashTween.stop();
     }
     
-    if (this.tintShader) {
-      // Set full white tint for flash
-      this.tintShader.tintIntensity = intensity;
-      this.tintShader.tintColor = [1.0, 1.0, 1.0];
-      
-      // Tween the shader intensity back to 0
-      this.flashTween = this.scene.tweens.add({
-        targets: this.tintShader,
-        duration: duration,
-        tintIntensity: 0,
-        ease: 'Power2.easeOut',
-        onComplete: () => {
-          this.flashTween = undefined;
-        }
-      });
-    }
+    // Use simple tint effect as fallback for flash
+    this.setTint(0xffffff);
+    
+    this.flashTween = this.scene.tweens.add({
+      targets: this,
+      duration: duration,
+      alpha: 1,
+      ease: 'Power2.easeOut',
+      onComplete: () => {
+        this.clearTint();
+        this.flashTween = undefined;
+      }
+    });
   }
   
   public showPopup(delta: number, isCritical: boolean): void {
@@ -87,11 +71,6 @@ export class BattleSprite extends Phaser.GameObjects.Sprite implements Illuminat
   destroy(fromScene?: boolean): void {
     if (this.flashTween) {
       this.flashTween.stop();
-    }
-    
-    // Clean up shader
-    if (this.tintShader) {
-      this.resetPipeline();
     }
     
     super.destroy(fromScene);

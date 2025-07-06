@@ -7,8 +7,13 @@
 
 import type { List } from "../components/List";
 import type { Menu } from "../components/Menu";
-import type { Focusable } from "./FocusStateMachine";
 import type { GridNavigationController } from "./GridNavigationController";
+
+export interface Focusable {
+	activate(): void;
+	deactivate(): void;
+	destroy(): void;
+}
 
 /**
  * Wrapper for Menu component with enhanced keyboard navigation

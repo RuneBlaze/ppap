@@ -5,24 +5,24 @@
  * Each scene can define its own focus management behavior this way.
  */
 
-import type { FSMConfig, FsmState, FsmEvent } from "../ui/state/GenericFocusStateMachine";
-import { type Character, type BattleAction, type Skill, ActionType } from "./BattleScene";
+import type { FSMConfig } from "../ui/state/GenericFocusStateMachine";
+import { type BattleCharacter, type BattleAction, type Skill, ActionType } from "./BattleScene";
 
 // =============================================================================
 // State Definitions
 // =============================================================================
 export type BattleFocusState =
 	| { id: 'idle' }
-	| { id: 'actionMenu'; character: Character }
-	| { id: 'skillMenu'; character: Character; skills: Skill[] }
-	| { id: 'targetMenu'; character: Character; pendingAction: Partial<BattleAction>; targets: Character[] }
-	| { id: 'itemMenu'; character: Character };
+	| { id: 'actionMenu'; character: BattleCharacter }
+	| { id: 'skillMenu'; character: BattleCharacter; skills: Skill[] }
+	| { id: 'targetMenu'; character: BattleCharacter; pendingAction: Partial<BattleAction>; targets: BattleCharacter[] }
+	| { id: 'itemMenu'; character: BattleCharacter };
 
 // =============================================================================
 // Event Definitions
 // =============================================================================
 export type BattleFocusEvent =
-	| { type: 'startPlayerTurn'; character: Character }
+	| { type: 'startPlayerTurn'; character: BattleCharacter }
 	| { type: 'selectAttack' }
 	| { type: 'selectSkill'; skills: Skill[] }
 	| { type: 'selectItem' }

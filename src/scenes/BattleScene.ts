@@ -13,6 +13,7 @@ import { match } from "ts-pattern";
 import { filter, pipe, sample, sort } from "remeda";
 import { BattleSprite } from "../base/BattleSprite";
 import { getFontStyle } from "../fonts";
+import { NoisePatternShader } from "../shaders/NoisePatternShader";
 
 
 export enum ActionType {
@@ -79,6 +80,7 @@ export class BattleScene extends BaseScene {
 	private turnIndex: number = 0;
 
 	// UI elements
+	private actionMenu: Menu | null = null;
 	private skillMenu: Menu | null = null;
 	private targetMenu: Menu | null = null;
 	private actionWidgets: ActionWidget[] = [];
@@ -92,6 +94,10 @@ export class BattleScene extends BaseScene {
 
 	// Layout helpers
 	private playerWindowY: number = 0; // populated in createCharacterDisplay
+
+	// Background shader
+	private backgroundSprite: Phaser.GameObjects.Image | null = null;
+	private backgroundShader: NoisePatternShader | null = null;
 
 	// Debug
 	private debugGraphics: Phaser.GameObjects.Graphics | null = null;
@@ -152,9 +158,31 @@ export class BattleScene extends BaseScene {
 				frameHeight: 16,
 			});
 		}
+
+		// Shader will be registered in createScene when needed
+
+		// Create a simple texture for the background
+		if (!this.textures.exists("backgroundTexture")) {
+			const canvas = this.textures.createCanvas("backgroundTexture", SCENE_WIDTH, SCENE_HEIGHT);
+			if (canvas) {
+				const ctx = canvas.getContext("2d");
+				if (ctx) {
+					ctx.fillStyle = "#ffffff";
+					ctx.fillRect(0, 0, SCENE_WIDTH, SCENE_HEIGHT);
+					canvas.refresh();
+				}
+			}
+		}
 	}
 
 	protected createScene() {
+		// Register the time gradient shader
+		try {
+			NoisePatternShader.registerShader(this.game);
+		} catch (error) {
+			console.warn("Could not register NoisePatternShader:", error);
+		}
+
 		this.initializeBattleData();
 		this.createUI();
 		this.initializeFocusManager(); // Must be after UI is created
@@ -237,7 +265,9 @@ export class BattleScene extends BaseScene {
 		}
 
 		const playerSectionWidth = 64; // Fixed width of 64px per character
-		const sectionX = OUTER_MARGIN + playerIndex * playerSectionWidth;
+		const panelWidth = this.playerParty.length * 64; // 64px per character
+		const panelX = (SCENE_WIDTH - panelWidth) / 2; // Center horizontally
+		const sectionX = panelX + playerIndex * playerSectionWidth;
 
 		// Get the anchor point for menus (center of the player's section)
 		const anchorX = sectionX + playerSectionWidth / 2;
@@ -417,7 +447,9 @@ export class BattleScene extends BaseScene {
 		if (playerIndex === -1) return;
 
 		const playerSectionWidth = 64;
-		const sectionX = OUTER_MARGIN + playerIndex * playerSectionWidth;
+		const panelWidth = this.playerParty.length * 64; // 64px per character
+		const panelX = (SCENE_WIDTH - panelWidth) / 2; // Center horizontally
+		const sectionX = panelX + playerIndex * playerSectionWidth;
 		const centerX = sectionX + playerSectionWidth / 2;
 
 		// Create small icon next to character avatar
@@ -601,10 +633,26 @@ export class BattleScene extends BaseScene {
 	}
 
 	private createBattleLayout() {
-		// Battle background
-		const graphics = this.add.graphics();
-		graphics.fillStyle(Palette.BLUE.num);
-		graphics.fillRect(0, 0, SCENE_WIDTH, SCENE_HEIGHT);
+		// Create animated background with shader
+		this.backgroundSprite = this.add.image(SCENE_WIDTH / 2, SCENE_HEIGHT / 2, "backgroundTexture");
+		this.backgroundSprite.setDisplaySize(SCENE_WIDTH, SCENE_HEIGHT);
+		this.backgroundSprite.setDepth(-100); // Ensure it's behind everything
+		
+		// Apply the time gradient shader
+		try {
+			this.backgroundSprite.setPostPipeline("NoisePattern");
+			this.backgroundShader = this.backgroundSprite.getPostPipeline("NoisePattern") as NoisePatternShader;
+			if (this.backgroundShader) {
+				this.backgroundShader.speed = 0.5; // Adjust animation speed
+			}
+		} catch (error) {
+			console.warn("Could not apply NoisePattern shader, falling back to static background:", error);
+			// Fallback to static background
+			this.backgroundSprite.destroy();
+			const graphics = this.add.graphics();
+			graphics.fillStyle(Palette.BLUE.num);
+			graphics.fillRect(0, 0, SCENE_WIDTH, SCENE_HEIGHT);
+		}
 
 		// Scene title
 		new TextBlock(this, {
@@ -663,14 +711,16 @@ export class BattleScene extends BaseScene {
 		});
 
 		/* ---------------- Player Window (Ally Status Panel) --------------- */
-		const playerWindowY = SCENE_HEIGHT - OUTER_MARGIN - PLAYER_WINDOW_HEIGHT - 30;
+		const playerWindowY = SCENE_HEIGHT - 10 - PLAYER_WINDOW_HEIGHT; // 10px from bottom
 		this.playerWindowY = playerWindowY; // expose for other UI elements
 
-		// Create the ally status panel component
+		// Create the ally status panel component - horizontally centered
+		const panelWidth = this.playerParty.length * 64; // 64px per character
+		const panelX = (SCENE_WIDTH - panelWidth) / 2; // Center horizontally
 		this.allyStatusPanel = new AllyStatusPanel(this, {
-			x: OUTER_MARGIN,
+			x: panelX,
 			y: playerWindowY,
-			width: WINDOW_WIDTH,
+			width: panelWidth,
 			height: PLAYER_WINDOW_HEIGHT,
 			characters: this.playerParty,
 		});
@@ -1057,6 +1107,11 @@ export class BattleScene extends BaseScene {
 	}
 
 	update(time: number, delta: number): void {
+		// Update background shader animation
+		if (this.backgroundShader) {
+			this.backgroundShader.time = time;
+		}
+
 		// Update action widgets
 		this.actionWidgets.forEach(widget => {
 			widget.update(time, delta);

@@ -71,33 +71,34 @@ export class AllyStatusPanel {
 			portrait.setDisplaySize(64, 64);
 			this.playerPortraits.push(portrait);
 
-			// Name below portrait
+			// Name overlaid on portrait (top)
 			const nameText = new TextBlock(this.scene, {
-				x: sectionX + 2,
-				y: this.options.y + 8 + 64 + 2,
+				x: portraitX,
+				y: portraitY - 24,
 				text: character.name,
 				fontKey: "everydayStandard",
 				color: Palette.WHITE.hex,
 			});
+			nameText.setOrigin(0.5, 0.5);
 			this.nameTexts.push(nameText);
 
-			// Level below name
+			// Level overlaid on portrait (top right)
 			const levelText = new TextBlock(this.scene, {
-				x: sectionX + 2,
-				y: this.options.y + 8 + 64 + 14,
-				text: `Lv ${character.level}`,
+				x: portraitX + 24,
+				y: portraitY - 24,
+				text: `${character.level}`,
 				fontKey: "everydayStandard",
 				color: Palette.WHITE.hex,
 			});
+			levelText.setOrigin(0.5, 0.5);
 			this.levelTexts.push(levelText);
 
-			// HP Bar below name/level
-			const hpBarY = this.options.y + 8 + 64 + 26;
+			// HP Bar overlaid on portrait (bottom area)
 			const hpBar = new ProgressBar(this.scene, {
-				x: sectionX + 2,
-				y: hpBarY,
-				width: 60,
-				height: 6,
+				x: portraitX - 28,
+				y: portraitY + 16,
+				width: 56,
+				height: 8,
 				value: character.currentHP,
 				maxValue: character.maxHP,
 				gradientStart: Palette.RED.hex,
@@ -105,13 +106,12 @@ export class AllyStatusPanel {
 			});
 			this.playerHPBars.push(hpBar);
 
-			// MP Bar below HP bar
-			const mpBarY = hpBarY + 8;
+			// MP Bar overlaid on portrait (below HP)
 			const mpBar = new ProgressBar(this.scene, {
-				x: sectionX + 2,
-				y: mpBarY,
-				width: 60,
-				height: 6,
+				x: portraitX - 28,
+				y: portraitY + 26,
+				width: 56,
+				height: 8,
 				value: character.currentMP,
 				maxValue: character.maxMP,
 				gradientStart: Palette.BLUE.hex,
@@ -119,24 +119,26 @@ export class AllyStatusPanel {
 			});
 			this.playerMPBars.push(mpBar);
 
-			// HP label
+			// HP numeric value overlaid on HP bar
 			const hpLabel = new TextBlock(this.scene, {
-				x: sectionX + 2,
-				y: hpBarY - 10,
-				text: "HP",
+				x: portraitX,
+				y: portraitY + 16,
+				text: `${character.currentHP}/${character.maxHP}`,
 				fontKey: "everydayStandard",
 				color: Palette.WHITE.hex,
 			});
+			hpLabel.setOrigin(0.5, 0.5);
 			this.hpLabels.push(hpLabel);
 
-			// MP label
+			// MP numeric value overlaid on MP bar
 			const mpLabel = new TextBlock(this.scene, {
-				x: sectionX + 32,
-				y: hpBarY - 10,
-				text: "MP",
+				x: portraitX,
+				y: portraitY + 26,
+				text: `${character.currentMP}/${character.maxMP}`,
 				fontKey: "everydayStandard",
 				color: Palette.WHITE.hex,
 			});
+			mpLabel.setOrigin(0.5, 0.5);
 			this.mpLabels.push(mpLabel);
 		});
 	}
@@ -165,7 +167,17 @@ export class AllyStatusPanel {
 
 			// Update level if changed
 			if (this.levelTexts[index]) {
-				this.levelTexts[index].setText(`Lv ${character.level}`);
+				this.levelTexts[index].setText(`${character.level}`);
+			}
+
+			// Update HP text
+			if (this.hpLabels[index]) {
+				this.hpLabels[index].setText(`${character.currentHP}/${character.maxHP}`);
+			}
+
+			// Update MP text
+			if (this.mpLabels[index]) {
+				this.mpLabels[index].setText(`${character.currentMP}/${character.maxMP}`);
 			}
 		});
 

@@ -9,9 +9,7 @@ import { BattleSprite } from "../base/BattleSprite";
 import { DrawUtils } from "../draw-utils";
 import Phaser from "phaser";
 import {
-	animationDemoFocusConfig,
-	type AnimationDemoFocusEvent,
-	type AnimationDemoFocusState,
+	animationDemoFocusConfig
 } from "./AnimationDemoFocusConfig";
 import { GenericFocusStateMachine } from "../ui/state/GenericFocusStateMachine";
 

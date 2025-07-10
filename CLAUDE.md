@@ -127,6 +127,12 @@ ALWAYS run `pnpm build` after several large changes (or at the conclusion) to do
 - Shader uniforms are updated in real-time for smooth 3D effects
 - Text rendering includes advanced compression logic for fitting text on small cards
 
+## General Coding Guidelines (Reminders)
+
+- **Embrace Change:** Do not preserve backward compatibility when making API changes unless explicitly required.
+- **Ruthless Deletion:** Delete unused code; do not comment it out.
+- **Utility Preference:** When applicable and offering a readability or efficiency advantage, prefer using `remeda` and `ts-pattern` as utility libraries.
+
 ## Import Patterns
 
 The project supports both relative and absolute imports:

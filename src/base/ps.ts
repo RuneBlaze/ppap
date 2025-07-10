@@ -80,14 +80,7 @@ export function spr(n: number, x: number, y: number) {
   drawCalls.push({ t: "spr", n, x, y });
 }
 
-/* Placeholder for sprite-sheet blit – replace later */
-function blt(scene: Phaser.Scene, _n: number, x: number, y: number) {
-  // TODO: Replace with actual sprite-sheet render. For now, draw a tiny square.
-  const g = scene.add.graphics();
-  g.fillStyle(0xffffff);
-  g.fillRect(x, y, 4, 4);
-  g.destroy();
-}
+
 
 /* -------------------------------------------------------------------------
  * Particle
@@ -515,7 +508,7 @@ export class Anim {
         g.setDepth(9500);
 
         // Derive the colour hex for bloom (e.g. 0xff00ff)
-        const colHex = Phaser.Display.Color.HexStringToColor(PsPaletteArray[paletteIdx]).color;
+        // const colHex = Phaser.Display.Color.HexStringToColor(PsPaletteArray[paletteIdx]).color;
 
         // Attach bloom using the circle's own colour
         try {

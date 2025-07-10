@@ -66,7 +66,7 @@ export const battleFocusConfig: FSMConfig<BattleFocusState, BattleFocusEvent> = 
 		{
 			from: "actionMenu",
 			event: "selectAttack",
-			to: (event, fromState) => ({
+			to: (_event, fromState) => ({
 				id: "targetMenu",
 				character: (fromState as any).character,
 				pendingAction: { type: ActionType.ATTACK },
@@ -76,7 +76,7 @@ export const battleFocusConfig: FSMConfig<BattleFocusState, BattleFocusEvent> = 
 		{
 			from: "actionMenu",
 			event: "selectItem",
-			to: (event, fromState) => ({
+			to: (_event, fromState) => ({
 				id: "itemMenu",
 				character: (fromState as any).character,
 			}),
@@ -86,7 +86,7 @@ export const battleFocusConfig: FSMConfig<BattleFocusState, BattleFocusEvent> = 
 		{
 			from: "skillMenu",
 			event: "selectAttack", // A skill was chosen, now select a target
-			to: (event, fromState) => ({
+			to: (_event, fromState) => ({
 				id: "targetMenu",
 				character: (fromState as any).character,
 				pendingAction: { type: ActionType.SKILL, skillId: (event as any).skillId },
@@ -96,7 +96,7 @@ export const battleFocusConfig: FSMConfig<BattleFocusState, BattleFocusEvent> = 
 		{
 			from: "skillMenu",
 			event: "back",
-			to: (event, fromState) => ({
+			to: (_event, fromState) => ({
 				id: "actionMenu",
 				character: (fromState as any).character,
 			}),
@@ -108,7 +108,7 @@ export const battleFocusConfig: FSMConfig<BattleFocusState, BattleFocusEvent> = 
 			event: "back",
 			// This is where a parameterized state shines. We can return to the
 			// correct previous menu (action or skill) based on the pending action.
-			to: (event, fromState) => {
+			to: (_event, fromState) => {
 				const { character, pendingAction } = fromState as any;
 				if (pendingAction.type === 'skill') {
 					// We need to know the available skills to go back.
@@ -122,7 +122,7 @@ export const battleFocusConfig: FSMConfig<BattleFocusState, BattleFocusEvent> = 
 		{
 			from: "targetMenu",
 			event: "selectTarget",
-			to: (event, fromState) => {
+			to: (_event, _fromState) => {
 				// The action is now fully defined.
 				// We could transition to a "confirming" state, but for now
 				// let's just go back to idle as the action is executed.
@@ -134,7 +134,7 @@ export const battleFocusConfig: FSMConfig<BattleFocusState, BattleFocusEvent> = 
 		{
 			from: "itemMenu",
 			event: "back",
-			to: (event, fromState) => ({
+			to: (_event, fromState) => ({
 				id: "actionMenu",
 				character: (fromState as any).character,
 			}),
@@ -144,7 +144,7 @@ export const battleFocusConfig: FSMConfig<BattleFocusState, BattleFocusEvent> = 
 		{
 			from: ["skillMenu", "targetMenu", "itemMenu"],
 			event: "cancel",
-			to: (event, fromState) => ({
+			to: (_event, fromState) => ({
 				id: "actionMenu",
 				character: (fromState as any).character,
 			}),

@@ -1,6 +1,7 @@
 import { Palette } from "../palette";
 import { Menu, type MenuItem } from "../ui/components/Menu";
 import { AllyStatusPanel, type Character } from "../ui/components/AllyStatusPanel";
+import { ActionWidget } from "../ui/components/ActionWidget";
 import { ProgressBar } from "../ui/primitives/ProgressBar";
 import { TextBlock } from "../ui/primitives/TextBlock";
 import { Window } from "../ui/primitives/Window";
@@ -11,6 +12,7 @@ import { BaseScene } from "./BaseScene";
 import { match } from "ts-pattern";
 import { filter, pipe, sample, sort } from "remeda";
 import { BattleSprite } from "../base/BattleSprite";
+import { getFontStyle } from "../fonts";
 
 
 export enum ActionType {
@@ -31,6 +33,17 @@ export interface BattleAction {
 	skillId?: string;
 	itemId?: string;
 	targetId?: string;
+	damage?: number;
+	healing?: number;
+}
+
+export interface ActionDefinition {
+	id: string;
+	name: string;
+	type: ActionType;
+	iconFrame: number;
+	skillId?: string;
+	mpCost?: number;
 	damage?: number;
 	healing?: number;
 }
@@ -58,7 +71,7 @@ const PORTRAIT_SIZE = 48;
 
 
 export class BattleScene extends BaseScene {
-	private focusManager!: GenericFocusStateMachine<BattleFocusState, BattleFocusEvent>;
+	protected declare focusManager: GenericFocusStateMachine<BattleFocusState, BattleFocusEvent>;
 	// Character data
 	private playerParty: BattleCharacter[] = [];
 	private enemyParty: BattleCharacter[] = [];
@@ -66,9 +79,10 @@ export class BattleScene extends BaseScene {
 	private turnIndex: number = 0;
 
 	// UI elements
-	private actionMenu: Menu | null = null;
 	private skillMenu: Menu | null = null;
 	private targetMenu: Menu | null = null;
+	private actionWidgets: ActionWidget[] = [];
+	private selectedActionIndicators: Map<string, { icon: Phaser.GameObjects.Image; text: Phaser.GameObjects.Text }> = new Map();
 
 	// Character display elements
 	private allyStatusPanel: AllyStatusPanel | null = null;
@@ -131,6 +145,12 @@ export class BattleScene extends BaseScene {
 		}
 		if (!this.textures.exists("portrait")) {
 			this.load.image("portrait", "src/assets/portrait.png");
+		}
+		if (!this.textures.exists("icons")) {
+			this.load.spritesheet("icons", "src/assets/icons_full_16.png", {
+				frameWidth: 16,
+				frameHeight: 16,
+			});
 		}
 	}
 
@@ -257,6 +277,173 @@ export class BattleScene extends BaseScene {
 				menuY,
 			);
 		}
+
+		// 4. Show action widgets in radial layout
+		this.showActionWidgets(anchorX, this.playerWindowY - 60);
+	}
+
+	private getAvailableActions(character: BattleCharacter): ActionDefinition[] {
+		const actions: ActionDefinition[] = [
+			{
+				id: "attack",
+				name: "Attack",
+				type: ActionType.ATTACK,
+				iconFrame: 0
+			},
+			{
+				id: "defend",
+				name: "Defend", 
+				type: ActionType.DEFEND,
+				iconFrame: 12
+			}
+		];
+
+		// Add individual skills that the character can afford
+		this.availableSkills.forEach((skill, index) => {
+			if (character.currentMP >= skill.mpCost) {
+				actions.push({
+					id: skill.id,
+					name: skill.name,
+					type: ActionType.SKILL,
+					iconFrame: 24 + index, // Different icon per skill
+					skillId: skill.id,
+					mpCost: skill.mpCost,
+					damage: skill.damage,
+					healing: skill.healing
+				});
+			}
+		});
+
+		// Add items (placeholder for now)
+		actions.push({
+			id: "potion",
+			name: "Potion",
+			type: ActionType.ITEM,
+			iconFrame: 36
+		});
+
+		return actions;
+	}
+
+	private showActionWidgets(centerX: number, centerY: number) {
+		// Clear existing widgets
+		this.hideActionWidgets();
+
+		const currentCharacter = (this.focusManager.getCurrentState() as any).character;
+		const availableActions = this.getAvailableActions(currentCharacter);
+
+		// Predefined "random" offsets that look aesthetically pleasing
+		const offsets = [
+			{ x: -4, y: -6 },    { x: 3, y: -1 },     { x: -2, y: 4 },     { x: 4, y: 8 },
+			{ x: -3, y: 12 },    { x: 2, y: 16 },     { x: -1, y: 20 },    { x: 5, y: 24 }
+		];
+
+		const verticalSpacing = 20;
+		const maxPerColumn = 4;
+
+		availableActions.forEach((actionDef, index) => {
+			const column = Math.floor(index / maxPerColumn);
+			const row = index % maxPerColumn;
+			const offset = offsets[index] || { x: 0, y: 0 };
+			
+			const x = centerX + column * 30 + offset.x; // 30px between columns
+			const y = centerY - 30 + row * verticalSpacing + offset.y; // Start above center
+
+			const widget = new ActionWidget(this, {
+				x,
+				y,
+				iconKey: "icons",
+				iconFrame: actionDef.iconFrame,
+				size: 16,
+				label: actionDef.name,
+				onSelect: () => this.onActionSelected(actionDef)
+			});
+
+			this.actionWidgets.push(widget);
+		});
+	}
+
+	private hideActionWidgets() {
+		this.actionWidgets.forEach(widget => widget.destroy());
+		this.actionWidgets = [];
+	}
+
+	private onActionSelected(actionDef: ActionDefinition) {
+		console.log(`Action selected: ${actionDef.name}`);
+		
+		// Hide widgets after selection
+		this.hideActionWidgets();
+
+		const currentCharacter = (this.focusManager.getCurrentState() as any).character;
+		
+		// Create the battle action with auto-target selection
+		const action: BattleAction = {
+			type: actionDef.type,
+			skillId: actionDef.skillId,
+			targetId: this.getRandomTarget(actionDef)
+		};
+
+		// Show selected action indicator on character
+		this.showSelectedActionIndicator(currentCharacter, actionDef);
+
+		// Execute the action
+		this.selectAction(currentCharacter, action);
+	}
+
+	private getRandomTarget(actionDef: ActionDefinition): string {
+		// For attack actions and damage skills, target enemies
+		if (actionDef.type === ActionType.ATTACK || (actionDef.damage && actionDef.damage > 0)) {
+			const aliveEnemies = filter(this.enemyParty, (e) => e.isAlive);
+			const randomEnemy = sample(aliveEnemies, 1)[0];
+			return randomEnemy?.id || "";
+		}
+		
+		// For healing skills, target allies
+		if (actionDef.healing && actionDef.healing > 0) {
+			const aliveAllies = filter(this.playerParty, (p) => p.isAlive);
+			const randomAlly = sample(aliveAllies, 1)[0];
+			return randomAlly?.id || "";
+		}
+
+		// For defend and items, no target needed
+		return "";
+	}
+
+	private showSelectedActionIndicator(character: BattleCharacter, actionDef: ActionDefinition) {
+		// Remove existing indicator for this character
+		this.hideSelectedActionIndicator(character.id);
+
+		const playerIndex = this.playerParty.findIndex((p) => p.id === character.id);
+		if (playerIndex === -1) return;
+
+		const playerSectionWidth = 64;
+		const sectionX = OUTER_MARGIN + playerIndex * playerSectionWidth;
+		const centerX = sectionX + playerSectionWidth / 2;
+
+		// Create small icon next to character avatar
+		const icon = this.add.image(centerX + 20, this.playerWindowY + 20, "icons");
+		icon.setFrame(actionDef.iconFrame);
+		icon.setDisplaySize(12, 12);
+		icon.setDepth(100);
+
+		// Create text label
+		const text = this.add.text(centerX + 20, this.playerWindowY + 32, actionDef.name, {
+			...getFontStyle("everydayStandard"),
+			color: Palette.YELLOW.hex
+		});
+		text.setOrigin(0.5, 0);
+		text.setDepth(100);
+
+		this.selectedActionIndicators.set(character.id, { icon, text });
+	}
+
+	private hideSelectedActionIndicator(characterId: string) {
+		const indicator = this.selectedActionIndicators.get(characterId);
+		if (indicator) {
+			indicator.icon.destroy();
+			indicator.text.destroy();
+			this.selectedActionIndicators.delete(characterId);
+		}
 	}
 
 	private initializeDebugComponents() {
@@ -287,20 +474,7 @@ export class BattleScene extends BaseScene {
 				),
 		});
 
-		// --- Action Menu ---
-		this.debugComponents.push({
-			name: "Action Menu",
-			getBounds: () => {
-				if (!this.actionMenu) return new Phaser.Geom.Rectangle(0, 0, 0, 0);
-				const menuWindow = this.actionMenu.getWindow();
-				return new Phaser.Geom.Rectangle(
-					this.actionMenu.x,
-					this.actionMenu.y,
-					menuWindow.getWidth(),
-					menuWindow.getHeight(),
-				);
-			},
-		});
+				// --- Player Status Window ---
 
 		// Register key listener
 		this.input.keyboard?.on("keydown-D", this.cycleDebugHighlight, this);
@@ -443,16 +617,9 @@ export class BattleScene extends BaseScene {
 	}
 
 	private createCharacterDisplay() {
-		/* ---------------- Enemy Window -------------------------------------- */
+		/* ---------------- Enemy Sprites -------------------------------------- */
 		const enemyWindowX = OUTER_MARGIN;
 		const enemyWindowY = OUTER_MARGIN;
-		new Window(this, {
-			x: enemyWindowX,
-			y: enemyWindowY,
-			width: WINDOW_WIDTH,
-			height: ENEMY_WINDOW_HEIGHT,
-		});
-
 		const enemySectionWidth = WINDOW_WIDTH / this.enemyParty.length;
 		this.enemyParty.forEach((enemy, index) => {
 			const sectionStartX = enemyWindowX + enemySectionWidth * index;
@@ -593,11 +760,13 @@ export class BattleScene extends BaseScene {
 	}
 	
 	private showActionMenu(_state: BattleFocusState & { id: "actionMenu" }) {
-		this.toggleMenuVisibility(this.actionMenu, true);
+		// Don't show the old menu - widgets are already shown in updateActivePlayerVisuals
+		// this.toggleMenuVisibility(this.actionMenu, true);
 	}
 
 	private hideActionMenu() {
 		this.toggleMenuVisibility(this.actionMenu, false);
+		this.hideActionWidgets();
 	}
 	
 	private createSkillMenu(): Menu {
@@ -863,6 +1032,10 @@ export class BattleScene extends BaseScene {
 		// Clear all selected actions
 		this.turnOrder.forEach((character) => {
 			character.selectedAction = undefined;
+			// Clear action indicators for player characters
+			if (character.isPlayer) {
+				this.hideSelectedActionIndicator(character.id);
+			}
 		});
 
 		// Recalculate turn order (in case characters died)
@@ -883,6 +1056,16 @@ export class BattleScene extends BaseScene {
 		return Math.min(120, itemCount * 25 + 40);
 	}
 
+	update(time: number, delta: number): void {
+		// Update action widgets
+		this.actionWidgets.forEach(widget => {
+			widget.update(time, delta);
+		});
+		
+		// Call parent update if it exists
+		super.update?.(time, delta);
+	}
+
 	destroy() {
 		if (this.focusManager) {
 			this.focusManager.destroy();
@@ -896,6 +1079,16 @@ export class BattleScene extends BaseScene {
 		// Clean up ally status panel
 		this.allyStatusPanel?.destroy();
 		this.allyStatusPanel = null;
+
+		// Clean up action widgets
+		this.hideActionWidgets();
+
+		// Clean up action indicators
+		this.selectedActionIndicators.forEach((indicator) => {
+			indicator.icon.destroy();
+			indicator.text.destroy();
+		});
+		this.selectedActionIndicators.clear();
 
 		// Clean up arrays
 		this.enemyHPBars = [];

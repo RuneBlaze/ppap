@@ -5,6 +5,7 @@ import { BattleScene } from "./scenes/BattleScene";
 import { ShopScene } from "./scenes/ShopScene";
 import { GameScene } from "./scenes/GameScene";
 import { AnimationDemoScene } from "./scenes/AnimationDemoScene";
+import { SocietyScene } from "./scenes/SocietyScene";
 
 // Calculate the maximum scale that fits the viewport while maintaining aspect ratio
 function calculateScale() {
@@ -31,7 +32,7 @@ const config: Phaser.Types.Core.GameConfig = {
 	backgroundColor: "#1a1a2e",
 	pixelArt: true,
 	antialias: false,
-	scene: [BattleScene, ShopScene, GameScene, AnimationDemoScene],
+	scene: [BattleScene],
 	scale: {
 		mode: Phaser.Scale.NONE,
 		zoom: scale,
@@ -68,6 +69,10 @@ game.events.on("ready", () => {
 			game.scene.getScenes(true).forEach((scene) => scene.scene.stop());
 			game.scene.start("AnimationDemoScene");
 		})
+		.on("/society", () => {
+			game.scene.getScenes(true).forEach((scene) => scene.scene.stop());
+			game.scene.start("SocietyScene");
+		})
 		.resolve();
 });
 
@@ -95,6 +100,7 @@ createNavButton("Game", "/");
 createNavButton("Battle", "/battle");
 createNavButton("Shop", "/shop");
 createNavButton("Anim Demo", "/anim-demo");
+createNavButton("Society", "/society");
 
 // Handle window resize to recalculate scale
 window.addEventListener("resize", () => {

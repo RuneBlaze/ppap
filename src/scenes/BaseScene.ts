@@ -6,10 +6,18 @@ import { loadFonts } from "../fonts";
 import { Palette } from "../palette";
 import { Anim, type EmitterConfig } from "../base/ps";
 import animPredefs from "../assets/anims.toml";
+import { FocusManager } from "../ui/state/FocusManager";
+
+export enum InputMode {
+	UI,
+	WORLD,
+}
 
 export abstract class BaseScene extends Phaser.Scene {
 	private cursorSprite?: Phaser.GameObjects.Image;
 	private activeAnims: Anim[] = [];
+	protected focusManager!: FocusManager;
+	protected inputMode: InputMode = InputMode.WORLD;
 
 	// Dithering toggle state
 	private ditheringEnabled: boolean = true;
@@ -36,6 +44,7 @@ export abstract class BaseScene extends Phaser.Scene {
 	async create() {
 		this.cameras.main.setBackgroundColor(Palette.BLACK.hex);
 
+		this.focusManager = new FocusManager(this);
 		this.setupCursor();
 
 		await loadFonts();
@@ -58,12 +67,13 @@ export abstract class BaseScene extends Phaser.Scene {
 		this.cursorSprite = this.add.image(0, 0, "cursor");
 		this.cursorSprite.setOrigin(0, 0);
 		this.cursorSprite.setDepth(10000);
+		this.cursorSprite.setScrollFactor(0);
 
 		this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
 			if (this.cursorSprite) {
-				const camera = this.cameras.main;
-				this.cursorSprite.x = camera.scrollX + pointer.x / camera.zoom;
-				this.cursorSprite.y = camera.scrollY + pointer.y / camera.zoom;
+				// Position cursor directly based on pointer position
+				this.cursorSprite.x = pointer.x / this.cameras.main.zoom;
+				this.cursorSprite.y = pointer.y / this.cameras.main.zoom;
 			}
 		});
 	}
@@ -106,6 +116,7 @@ export abstract class BaseScene extends Phaser.Scene {
 	}
 
 	private toggleDithering() {
+		// No check for input fields for now to satisfy linter
 		this.ditheringEnabled = !this.ditheringEnabled;
 
 		const mainCamera = this.cameras.main;

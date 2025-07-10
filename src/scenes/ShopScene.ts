@@ -2,24 +2,17 @@ import { DrawUtils } from "../draw-utils";
 import { Palette } from "../palette";
 import { List, type ListItem } from "../ui/components/List";
 import { Menu, type MenuItem } from "../ui/components/Menu";
-import { Container } from "../ui/layout/Container";
-import { Button } from "../ui/primitives/Button";
-import { Divider } from "../ui/primitives/Divider";
-import { Gauge } from "../ui/primitives/Gauge";
-import { NumberDisplay } from "../ui/primitives/NumberDisplay";
-import { ProgressBar } from "../ui/primitives/ProgressBar";
-import { Slider } from "../ui/primitives/Slider";
-import { TextBlock } from "../ui/primitives/TextBlock";
-import { Toggle } from "../ui/primitives/Toggle";
 import { Window } from "../ui/primitives/Window";
 import {
 	FocusableGrid,
 	FocusableList,
 	FocusableMenu,
 } from "../ui/state/FocusableWrappers";
-import { FocusManager, type FocusToken } from "../ui/state/FocusManager";
+import { type FocusToken } from "../ui/state/FocusManager";
 import { GridNavigationController } from "../ui/state/GridNavigationController";
-import { BaseScene } from "./BaseScene";
+import { BaseScene, InputMode } from "./BaseScene";
+
+import { TextBlock } from "../ui/primitives/TextBlock";
 
 export class ShopScene extends BaseScene {
 	private mainMenu: Menu | null = null;
@@ -35,10 +28,7 @@ export class ShopScene extends BaseScene {
 	private gossipMenuWindow: Window | null = null;
 
 	// Focus Management System
-	private focusManager: FocusManager | null = null;
 	private listFocusToken: FocusToken | null = null;
-	private gridFocusToken: FocusToken | null = null;
-	private shopMenuFocusToken: FocusToken | null = null;
 
 	// Menu wrapper components
 	private focusableMainMenu: FocusableMenu | null = null;
@@ -53,18 +43,6 @@ export class ShopScene extends BaseScene {
 	private focusableList: FocusableList | null = null;
 	private focusableGrid: FocusableGrid | null = null;
 
-	// UI Demo Components
-	private demoButtons: Button[] = [];
-	private demoGauges: Gauge[] = [];
-	private demoProgressBars: ProgressBar[] = [];
-	private demoSliders: Slider[] = [];
-	private demoToggles: Toggle[] = [];
-	private demoNumberDisplays: NumberDisplay[] = [];
-	private playerGold: number = 1250;
-	private playerLevel: number = 15;
-	private playerHP: number = 85;
-	private playerMP: number = 42;
-
 	constructor() {
 		super("ShopScene");
 	}
@@ -72,10 +50,10 @@ export class ShopScene extends BaseScene {
 	protected preloadSceneAssets() {}
 
 	protected createScene() {
+		this.inputMode = InputMode.UI;
 		// Initialize the focus management system
 		this.initializeFocusManager();
 
-		// this.createUIDemo();
 		this.createShopMenuButton();
 		this.createNavigationDemo();
 		this.createGradientDemo();
@@ -107,19 +85,19 @@ export class ShopScene extends BaseScene {
 			},
 		};
 
-		this.shopMenuFocusToken = this.focusManager!.register(
+		this.focusManager.register(
 			"shopMenuButton",
 			focusableButton,
 		);
 	}
 
 	private initializeFocusManager() {
-		this.focusManager = new FocusManager(this);
-
 		// Listen for focus changes to provide debug feedback
 		this.focusManager.on("focusChanged", (event: any) => {
 			console.log(
-				`[${event.layer}] Focus changed: ${event.oldName || "none"} → ${event.newName || "none"}`,
+				`[${event.layer}] Focus changed: ${event.oldName || "none"} → ${
+					event.newName || "none"
+				}`,
 			);
 		});
 
@@ -140,31 +118,8 @@ export class ShopScene extends BaseScene {
 
 		// Set initial focus to the list
 		if (this.listFocusToken) {
-			this.focusManager?.focus(this.listFocusToken);
+			this.focusManager.focus(this.listFocusToken);
 		}
-
-		// Add instruction text with fade transition
-		new Window(this, {
-			x: 20,
-			y: 180,
-			width: 387,
-			height: 50,
-			transition: { type: "fade", duration: 800 },
-		});
-		new TextBlock(this, {
-			x: 30,
-			y: 190,
-			text: "TAB: Switch focus | SPACE: Open Shop Menu | D: Toggle Dithering",
-			fontKey: "everydayStandard",
-			color: Palette.CYAN.hex,
-		});
-		new TextBlock(this, {
-			x: 30,
-			y: 205,
-			text: "Submenus will create new focus layers!",
-			fontKey: "everydayStandard",
-			color: Palette.YELLOW.hex,
-		});
 	}
 
 	private createScrollableListDemo() {
@@ -210,10 +165,10 @@ export class ShopScene extends BaseScene {
 			onSelect: (item, _index) => {
 				console.log(`Selected: ${item.text} (${item.value})`);
 				// Demo: Remove gold when buying
-				if (item.value === "potion") {
-					this.playerGold = Math.max(0, this.playerGold - 25);
-					this.demoNumberDisplays[1]?.setValue(this.playerGold, true);
-				}
+				// if (item.value === "potion") {
+				// 	this.playerGold = Math.max(0, this.playerGold - 25);
+				// 	this.demoNumberDisplays[1]?.setValue(this.playerGold, true);
+				// }
 			},
 			onCancel: () => {
 				console.log("List cancelled");
@@ -222,7 +177,7 @@ export class ShopScene extends BaseScene {
 
 		// Register with focus manager (NO direct activation)
 		this.focusableList = new FocusableList(this.itemList);
-		this.listFocusToken = this.focusManager!.register(
+		this.listFocusToken = this.focusManager.register(
 			"itemList",
 			this.focusableList,
 		);
@@ -302,7 +257,7 @@ export class ShopScene extends BaseScene {
 
 		// Register with focus manager (NO direct activation or highlighting)
 		this.focusableGrid = new FocusableGrid(this.gridNavigation);
-		this.gridFocusToken = this.focusManager!.register(
+		this.focusManager.register(
 			"gridNavigation",
 			this.focusableGrid,
 		);
@@ -356,7 +311,7 @@ export class ShopScene extends BaseScene {
 		if (this.mainMenu) {
 			// Re-focus existing menu
 			if (this.focusableMainMenu) {
-				this.focusManager?.focus(
+				this.focusManager.focus(
 					(this.focusableMainMenu.getMenu() as any).focusToken,
 				);
 			}
@@ -364,7 +319,7 @@ export class ShopScene extends BaseScene {
 		}
 
 		// Push new focus layer for shop menu
-		this.focusManager?.pushLayer("shopMenu");
+		this.focusManager.pushLayer("shopMenu");
 
 		this.hideAllMenus();
 
@@ -394,7 +349,7 @@ export class ShopScene extends BaseScene {
 
 		// Register main menu with focus manager in shop layer
 		this.focusableMainMenu = new FocusableMenu(this.mainMenu);
-		const token = this.focusManager!.register(
+		const token = this.focusManager.register(
 			"mainMenu",
 			this.focusableMainMenu,
 			"shopMenu",
@@ -402,7 +357,7 @@ export class ShopScene extends BaseScene {
 		(this.mainMenu as any).focusToken = token;
 
 		// Immediately focus the main menu
-		this.focusManager?.focus(token);
+		this.focusManager.focus(token);
 	}
 
 	private hideMainMenu() {
@@ -424,12 +379,12 @@ export class ShopScene extends BaseScene {
 		}
 
 		// Pop the shop menu layer, returning to default layer
-		this.focusManager?.popLayer();
+		this.focusManager.popLayer();
 	}
 
 	private showBuyMenu() {
 		// Push new focus layer for buy submenu
-		this.focusManager?.pushLayer("buyMenu");
+		this.focusManager.pushLayer("buyMenu");
 
 		const buyItems: MenuItem[] = [
 			{ text: "Potions", onSelect: () => console.log("Potions") },
@@ -447,10 +402,10 @@ export class ShopScene extends BaseScene {
 				this.buyMenu = null;
 				this.focusableBuyMenu = null;
 				// Pop buy layer, return to shop menu layer
-				this.focusManager?.popLayer();
+				this.focusManager.popLayer();
 				// Re-focus main menu
 				if (this.focusableMainMenu) {
-					this.focusManager?.focus(
+					this.focusManager.focus(
 						(this.focusableMainMenu.getMenu() as any).focusToken,
 					);
 				}
@@ -459,7 +414,7 @@ export class ShopScene extends BaseScene {
 
 		// Register buy menu with focus manager in buy layer
 		this.focusableBuyMenu = new FocusableMenu(this.buyMenu);
-		const token = this.focusManager!.register(
+		const token = this.focusManager.register(
 			"buyMenu",
 			this.focusableBuyMenu,
 			"buyMenu",
@@ -467,12 +422,12 @@ export class ShopScene extends BaseScene {
 		(this.buyMenu as any).focusToken = token;
 
 		// Focus the buy menu
-		this.focusManager?.focus(token);
+		this.focusManager.focus(token);
 	}
 
 	private showSellMenu() {
 		// Push new focus layer for sell submenu
-		this.focusManager?.pushLayer("sellMenu");
+		this.focusManager.pushLayer("sellMenu");
 
 		const sellItems: MenuItem[] = [
 			{ text: "You have nothing to sell.", onSelect: () => {} },
@@ -487,10 +442,10 @@ export class ShopScene extends BaseScene {
 				this.sellMenu = null;
 				this.focusableSellMenu = null;
 				// Pop sell layer, return to shop menu layer
-				this.focusManager?.popLayer();
+				this.focusManager.popLayer();
 				// Re-focus main menu
 				if (this.focusableMainMenu) {
-					this.focusManager?.focus(
+					this.focusManager.focus(
 						(this.focusableMainMenu.getMenu() as any).focusToken,
 					);
 				}
@@ -499,7 +454,7 @@ export class ShopScene extends BaseScene {
 
 		// Register sell menu with focus manager
 		this.focusableSellMenu = new FocusableMenu(this.sellMenu);
-		const token = this.focusManager!.register(
+		const token = this.focusManager.register(
 			"sellMenu",
 			this.focusableSellMenu,
 			"sellMenu",
@@ -507,12 +462,12 @@ export class ShopScene extends BaseScene {
 		(this.sellMenu as any).focusToken = token;
 
 		// Focus the sell menu
-		this.focusManager?.focus(token);
+		this.focusManager.focus(token);
 	}
 
 	private showGossipMenu() {
 		// Push new focus layer for gossip submenu
-		this.focusManager?.pushLayer("gossipMenu");
+		this.focusManager.pushLayer("gossipMenu");
 
 		const gossipItems: MenuItem[] = [
 			{ text: '"The blacksmith is a nice fellow."', onSelect: () => {} },
@@ -527,10 +482,10 @@ export class ShopScene extends BaseScene {
 				this.gossipMenu = null;
 				this.focusableGossipMenu = null;
 				// Pop gossip layer, return to shop menu layer
-				this.focusManager?.popLayer();
+				this.focusManager.popLayer();
 				// Re-focus main menu
 				if (this.focusableMainMenu) {
-					this.focusManager?.focus(
+					this.focusManager.focus(
 						(this.focusableMainMenu.getMenu() as any).focusToken,
 					);
 				}
@@ -539,7 +494,7 @@ export class ShopScene extends BaseScene {
 
 		// Register gossip menu with focus manager
 		this.focusableGossipMenu = new FocusableMenu(this.gossipMenu);
-		const token = this.focusManager!.register(
+		const token = this.focusManager.register(
 			"gossipMenu",
 			this.focusableGossipMenu,
 			"gossipMenu",
@@ -547,7 +502,7 @@ export class ShopScene extends BaseScene {
 		(this.gossipMenu as any).focusToken = token;
 
 		// Focus the gossip menu
-		this.focusManager?.focus(token);
+		this.focusManager.focus(token);
 	}
 
 	private hideAllMenus() {
@@ -587,370 +542,14 @@ export class ShopScene extends BaseScene {
 		}
 	}
 
-	private createUIDemo() {
-		// Create main demo container
-		new Container(this);
-
-		// Create UI Demo Title
-		new Window(this, { x: 20, y: 20, width: 387, height: 40 });
-		new TextBlock(this, {
-			x: 30,
-			y: 32,
-			text: "UI Components Demo - Shop Scene",
-			fontKey: "everydayStandard",
-			color: Palette.WHITE.hex,
-		});
-
-		// Create Stats Panel (left side)
-		this.createStatsPanel();
-
-		// Create Controls Panel (right side)
-		this.createControlsPanel();
-
-		// Create Interactive Elements Panel (bottom)
-		this.createInteractivePanel();
-
-		// Initialize demo animations
-		this.startDemoAnimations();
-	}
-
-	private createStatsPanel() {
-		// Player Stats Window
-		new Window(this, { x: 20, y: 70, width: 180, height: 120 });
-
-		// Player info
-		new TextBlock(this, {
-			x: 30,
-			y: 85,
-			text: "Hero",
-			fontKey: "everydayStandard",
-			color: Palette.WHITE.hex,
-		});
-
-		const levelDisplay = new NumberDisplay(this, {
-			x: 30,
-			y: 100,
-			value: this.playerLevel,
-			fontKey: "everydayStandard",
-			color: Palette.CYAN.hex,
-			formatValue: (value: number) => `Lv.${value}`,
-		});
-		this.demoNumberDisplays.push(levelDisplay);
-
-		const goldDisplay = new NumberDisplay(this, {
-			x: 30,
-			y: 115,
-			value: this.playerGold,
-			fontKey: "everydayStandard",
-			color: Palette.YELLOW.hex,
-			formatValue: (value: number) => `${value}G`,
-		});
-		this.demoNumberDisplays.push(goldDisplay);
-
-		// HP Bar
-		const hpBar = new ProgressBar(this, {
-			x: 30,
-			y: 135,
-			width: 120,
-			height: 8,
-			value: this.playerHP,
-			maxValue: 100,
-			gradientStart: Palette.RED.hex,
-			gradientEnd: Palette.RED.hex,
-		});
-		this.demoProgressBars.push(hpBar);
-
-		new TextBlock(this, {
-			x: 160,
-			y: 135,
-			text: "HP",
-			fontKey: "everydayStandard",
-			color: Palette.WHITE.hex,
-		});
-
-		// Add heart icon for HP
-		// Draw 4x4 grid of icons (12-27)
-		for (let row = 0; row < 4; row++) {
-			for (let col = 0; col < 4; col++) {
-				const iconIndex = 12 + row * 4 + col;
-				DrawUtils.drawIcon(this, 175 + col * 16, 135 + row * 16, iconIndex);
-			}
-		}
-
-		// MP Bar
-		const mpBar = new ProgressBar(this, {
-			x: 30,
-			y: 150,
-			width: 120,
-			height: 8,
-			value: this.playerMP,
-			maxValue: 100,
-			gradientStart: Palette.BLUE.hex,
-			gradientEnd: Palette.BLUE.hex,
-		});
-		this.demoProgressBars.push(mpBar);
-
-		new TextBlock(this, {
-			x: 160,
-			y: 150,
-			text: "MP",
-			fontKey: "everydayStandard",
-			color: Palette.WHITE.hex,
-		});
-
-		// Circular Gauge (ATB/Charging)
-		const atbGauge = new Gauge(this, {
-			x: 160,
-			y: 110,
-			radius: 15,
-			value: 0,
-			maxValue: 100,
-			fillColor: Palette.GREEN.hex,
-			backgroundColor: Palette.DARK_GREEN.hex,
-		});
-		this.demoGauges.push(atbGauge);
-
-		new TextBlock(this, {
-			x: 150,
-			y: 170,
-			text: "ATB",
-			fontKey: "everydayStandard",
-			color: Palette.WHITE.hex,
-		});
-	}
-
-	private createControlsPanel() {
-		// Controls Window
-		new Window(this, { x: 220, y: 70, width: 187, height: 120 });
-
-		new TextBlock(this, {
-			x: 230,
-			y: 85,
-			text: "Shop Settings",
-			fontKey: "everydayStandard",
-			color: Palette.WHITE.hex,
-		});
-
-		// Volume Slider
-		const volumeSlider = new Slider(this, {
-			x: 230,
-			y: 105,
-			width: 120,
-			height: 12,
-			min: 0,
-			max: 100,
-			value: 75,
-			orientation: "horizontal",
-			showValue: true,
-		});
-		this.demoSliders.push(volumeSlider);
-
-		new TextBlock(this, {
-			x: 360,
-			y: 105,
-			text: "Vol",
-			fontKey: "everydayStandard",
-			color: Palette.WHITE.hex,
-		});
-
-		// Difficulty Slider
-		const difficultySlider = new Slider(this, {
-			x: 230,
-			y: 125,
-			width: 120,
-			height: 12,
-			min: 1,
-			max: 10,
-			value: 5,
-			orientation: "horizontal",
-			showValue: true,
-		});
-		this.demoSliders.push(difficultySlider);
-
-		new TextBlock(this, {
-			x: 360,
-			y: 125,
-			text: "Diff",
-			fontKey: "everydayStandard",
-			color: Palette.WHITE.hex,
-		});
-
-		// Toggles
-		const soundToggle = new Toggle(this, {
-			x: 230,
-			y: 145,
-			width: 60,
-			height: 16,
-			initialValue: true,
-			labels: { on: "ON", off: "OFF" },
-			style: "switch",
-		});
-		this.demoToggles.push(soundToggle);
-
-		new TextBlock(this, {
-			x: 300,
-			y: 145,
-			text: "Sound",
-			fontKey: "everydayStandard",
-			color: Palette.WHITE.hex,
-		});
-
-		const autoSaveToggle = new Toggle(this, {
-			x: 230,
-			y: 165,
-			width: 60,
-			height: 16,
-			initialValue: false,
-			labels: { on: "ON", off: "OFF" },
-			style: "checkbox",
-		});
-		this.demoToggles.push(autoSaveToggle);
-
-		new TextBlock(this, {
-			x: 300,
-			y: 165,
-			text: "Auto Save",
-			fontKey: "everydayStandard",
-			color: Palette.WHITE.hex,
-		});
-	}
-
-	private createInteractivePanel() {
-		// Interactive Elements Window
-		new Window(this, { x: 20, y: 200, width: 387, height: 35 });
-
-		// Horizontal Divider
-		new Divider(this, {
-			x: 30,
-			y: 218,
-			width: 367,
-			height: 1,
-			orientation: "horizontal",
-			style: "decorative",
-		});
-
-		// Demo Action Buttons
-		const buyButton = new Button(this, {
-			x: 30,
-			y: 205,
-			width: 60,
-			height: 20,
-			text: "Buy Item",
-			onPointerUp: () => {
-				this.playerGold = Math.max(0, this.playerGold - 50);
-				this.demoNumberDisplays[1].setValue(this.playerGold, true);
-				console.log("Item purchased!");
-			},
-		});
-		this.demoButtons.push(buyButton);
-
-		const healButton = new Button(this, {
-			x: 100,
-			y: 205,
-			width: 60,
-			height: 20,
-			text: "Heal",
-			onPointerUp: () => {
-				this.playerHP = Math.min(100, this.playerHP + 25);
-				this.demoProgressBars[0].setValue(this.playerHP, true);
-				console.log("HP restored!");
-			},
-		});
-		this.demoButtons.push(healButton);
-
-		const restoreButton = new Button(this, {
-			x: 170,
-			y: 205,
-			width: 60,
-			height: 20,
-			text: "Restore",
-			onPointerUp: () => {
-				this.playerMP = Math.min(100, this.playerMP + 25);
-				this.demoProgressBars[1].setValue(this.playerMP, true);
-				console.log("MP restored!");
-			},
-		});
-		this.demoButtons.push(restoreButton);
-
-		const levelUpButton = new Button(this, {
-			x: 240,
-			y: 205,
-			width: 60,
-			height: 20,
-			text: "Level Up",
-			onPointerUp: () => {
-				this.playerLevel++;
-				this.demoNumberDisplays[0].setValue(this.playerLevel, true);
-				console.log("Level up!");
-			},
-		});
-		this.demoButtons.push(levelUpButton);
-
-		const resetButton = new Button(this, {
-			x: 310,
-			y: 205,
-			width: 60,
-			height: 20,
-			text: "Reset",
-			onPointerUp: () => {
-				this.resetDemoValues();
-				console.log("Demo reset!");
-			},
-		});
-		this.demoButtons.push(resetButton);
-	}
-
-	private startDemoAnimations() {
-		// Animate ATB gauge
-		if (this.demoGauges.length > 0) {
-			this.time.addEvent({
-				delay: 3000,
-				callback: () => {
-					const atbGauge = this.demoGauges[0];
-					const newValue = atbGauge.getCurrentValue() >= 100 ? 0 : 100;
-					atbGauge.setValue(newValue, true);
-				},
-				loop: true,
-			});
-		}
-
-		// Animate gold counter occasionally
-		this.time.addEvent({
-			delay: 8000,
-			callback: () => {
-				this.playerGold += 25;
-				this.demoNumberDisplays[1].setValue(this.playerGold, true);
-			},
-			loop: true,
-		});
-	}
-
-	private resetDemoValues() {
-		this.playerGold = 1250;
-		this.playerLevel = 15;
-		this.playerHP = 85;
-		this.playerMP = 42;
-
-		this.demoNumberDisplays[0].setValue(this.playerLevel, true);
-		this.demoNumberDisplays[1].setValue(this.playerGold, true);
-		this.demoProgressBars[0].setValue(this.playerHP, true);
-		this.demoProgressBars[1].setValue(this.playerMP, true);
-
-		if (this.demoGauges.length > 0) {
-			this.demoGauges[0].setValue(0, true);
-		}
-	}
-
 	destroy() {
 		// Cleanup focus manager (this will handle component cleanup)
 		if (this.focusManager) {
 			this.focusManager.destroy();
-			this.focusManager = null;
 		}
 
 		// Reset tokens
 		this.listFocusToken = null;
-		this.gridFocusToken = null;
 
 		// Clean up wrapper references
 		this.focusableList = null;

@@ -1,5 +1,5 @@
 ---
-description:
+description: General coding rules and principles for the ppap project, intended for AI agents.
 globs:
 alwaysApply: true
 ---
@@ -10,6 +10,36 @@ alwaysApply: true
 </style>
 
 <general>
-1. We have both `remeda` and `ts-pattern` as utility libraries. Prefer them if offering a readaibility advantage.
-2. This is a phaser 3, retro-style game (HD pixel art).
+1. We have both `remeda` and `ts-pattern` as utility libraries. Prefer them if offering a readability advantage.
+2. This is a Phaser 3, retro-style game (HD pixel art).
+3. All positioning uses integer coordinates for pixel-perfect rendering.
+4. ALWAYS use `src/palette.ts` for colors. Anything outside the palette is strongly discouraged.
+5. Prefer absolute imports (e.g., `@/ui/layout/Container`) over relative imports.
 </general>
+
+<project_context>
+## Project Overview
+- **Game Type:** Retro-style card game with a dual-loop system: fast-paced roguelite dungeon crawling ("Front Office") and a slower, strategic political simulation ("Back Office").
+- **Technology Stack:** TypeScript, Phaser 3, Vite.
+- **Aesthetics:** Pixel art, HD-2D, Godot-inspired UI effects (3D hover, smooth transitions, advanced visual effects). Think "what would RPG Maker VX do".
+- **Core Gameplay:** Turn-based combat, card-based mechanics, narrative-driven political simulation with character "cards" moving on a grid.
+
+## UI Architecture & Design Principles
+- **Composition over Inheritance:** Build complex UIs from simple primitives.
+- **Declarative Configuration:** Use JSON-like configs for UI layouts.
+- **Reactive State:** UI should automatically update when state changes.
+- **Pixel-Perfect:** Integer positioning, palette-constrained colors.
+- **Keyboard-First:** Arrow keys, Enter/Escape, Tab navigation as primary interaction.
+- **Component-Based:** UI elements, game entities, and systems should be self-contained modules with clear, well-defined APIs.
+- **Formalize State:** Use State Machines (FSMs) for complex, long-lived state (e.g., character states, scene transitions, UI interactions).
+- **Single Source of Truth (SSOT):** For any given piece of state, there must be exactly one authoritative source.
+
+## Coding Philosophy
+- **Functional Core, Imperative Shell:** Core game logic should be pure, stateless functions. The "shell" handles side effects and interacts with Phaser/DOM.
+- **Data-Oriented Design:** Game data (stats, definitions, layouts) must be separate from logic. Avoid hardcoding data in scene files.
+- **Clarity Over Cleverness:** Write simple, direct, and easy-to-understand code.
+- **Decouple from Framework:** Core logic should not depend on Phaser for portability and testability.
+- **Make Debugging a Feature:** Treat debugging tools as core features (on-screen state, visualizations).
+- **Measure, Don't Guess:** Avoid premature optimization; use profiling tools to identify bottlenecks.
+- **Guided, Ruthless Refactoring:** Continuously eliminate duplication and improve code quality, guided by architectural principles.
+</project_context>

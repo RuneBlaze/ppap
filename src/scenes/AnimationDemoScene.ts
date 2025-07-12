@@ -1,22 +1,23 @@
+import Phaser from "phaser";
+import animPredefs from "../assets/anims.toml";
+import { BattleSprite } from "../base/BattleSprite";
+import type { Anim } from "../base/ps";
 import { Palette } from "../palette";
 import { List, type ListItem } from "../ui/components/List";
-import { TextBlock } from "../ui/primitives/TextBlock";
 import { Popup, type PopupInner } from "../ui/primitives/Popup";
-import { BaseScene } from "./BaseScene";
-import animPredefs from "../assets/anims.toml";
-import { Anim } from "../base/ps";
-import { BattleSprite } from "../base/BattleSprite";
-import { DrawUtils } from "../draw-utils";
-import Phaser from "phaser";
-import {
-	animationDemoFocusConfig
-} from "./AnimationDemoFocusConfig";
+import { TextBlock } from "../ui/primitives/TextBlock";
 import { GenericFocusStateMachine } from "../ui/state/GenericFocusStateMachine";
+import {
+	type AnimationDemoFocusEvent,
+	type AnimationDemoFocusState,
+	animationDemoFocusConfig,
+} from "./AnimationDemoFocusConfig";
+import { BaseScene } from "./BaseScene";
 
 export class AnimationDemoScene extends BaseScene {
 	private animationList: List | null = null;
 	private popupList: List | null = null;
-	private focusManager!: GenericFocusStateMachine<
+	private animationFocusManager!: GenericFocusStateMachine<
 		AnimationDemoFocusState,
 		AnimationDemoFocusEvent
 	>;
@@ -38,11 +39,7 @@ export class AnimationDemoScene extends BaseScene {
 	}
 
 	protected preloadSceneAssets() {
-		this.load.spritesheet("enemies", "src/assets/enemies.png", {
-			frameWidth: 64,
-			frameHeight: 64,
-		});
-		DrawUtils.preloadAssets(this);
+		// Assets are now preloaded in BootScene
 	}
 
 	protected createScene() {
@@ -93,7 +90,7 @@ export class AnimationDemoScene extends BaseScene {
 			fontKey: "everydayStandard",
 			color: Palette.WHITE.hex,
 		});
-		
+
 		new TextBlock(this, {
 			x: 20,
 			y: 220,
@@ -104,13 +101,13 @@ export class AnimationDemoScene extends BaseScene {
 	}
 
 	private initializeFocusManager() {
-		this.focusManager = new GenericFocusStateMachine(
+		this.animationFocusManager = new GenericFocusStateMachine(
 			this,
 			animationDemoFocusConfig,
 		);
 
 		if (this.animationList) {
-			this.focusManager.registerComponent(
+			this.animationFocusManager.registerComponent(
 				"animationMenu",
 				this.animationList,
 				() => this.showList(this.animationList),
@@ -118,7 +115,7 @@ export class AnimationDemoScene extends BaseScene {
 			);
 		}
 		if (this.popupList) {
-			this.focusManager.registerComponent(
+			this.animationFocusManager.registerComponent(
 				"popupMenu",
 				this.popupList,
 				() => this.showList(this.popupList),
@@ -127,13 +124,13 @@ export class AnimationDemoScene extends BaseScene {
 		}
 
 		this.input.keyboard?.on("keydown-SPACE", () => {
-			this.focusManager.sendEvent({ type: "toggleAnimationMenu" });
+			this.animationFocusManager.sendEvent({ type: "toggleAnimationMenu" });
 		});
 		this.input.keyboard?.on("keydown-P", () => {
-			this.focusManager.sendEvent({ type: "togglePopupMenu" });
+			this.animationFocusManager.sendEvent({ type: "togglePopupMenu" });
 		});
 		this.input.keyboard?.on("keydown-ESC", () => {
-			this.focusManager.sendEvent({ type: "close" });
+			this.animationFocusManager.sendEvent({ type: "close" });
 		});
 	}
 
@@ -143,13 +140,13 @@ export class AnimationDemoScene extends BaseScene {
 				text: animName,
 				onSelect: () => {
 					this.playAnimation(animName);
-					this.focusManager.sendEvent({ type: "selectItem" });
+					this.animationFocusManager.sendEvent({ type: "selectItem" });
 				},
 			}));
 
 		animationItems.push({
 			text: "Close Menu",
-			onSelect: () => this.focusManager.sendEvent({ type: "close" }),
+			onSelect: () => this.animationFocusManager.sendEvent({ type: "close" }),
 		});
 
 		this.animationList = new List(this, {
@@ -160,7 +157,7 @@ export class AnimationDemoScene extends BaseScene {
 			onSelect: (_item, index) => {
 				animationItems[index].onSelect();
 			},
-			onCancel: () => this.focusManager.sendEvent({ type: "close" }),
+			onCancel: () => this.animationFocusManager.sendEvent({ type: "close" }),
 		});
 
 		this.animationList.setVisible(false);
@@ -230,7 +227,7 @@ export class AnimationDemoScene extends BaseScene {
 			},
 			{
 				text: "Close Menu",
-				onSelect: () => this.focusManager.sendEvent({ type: "close" }),
+				onSelect: () => this.animationFocusManager.sendEvent({ type: "close" }),
 			},
 		];
 
@@ -243,10 +240,10 @@ export class AnimationDemoScene extends BaseScene {
 				const selected = popupItems[index];
 				selected.onSelect();
 				if (selected.text !== "Close Menu") {
-					this.focusManager.sendEvent({ type: "selectItem" });
+					this.animationFocusManager.sendEvent({ type: "selectItem" });
 				}
 			},
-			onCancel: () => this.focusManager.sendEvent({ type: "close" }),
+			onCancel: () => this.animationFocusManager.sendEvent({ type: "close" }),
 		});
 
 		this.popupList.setVisible(false);
@@ -296,14 +293,14 @@ export class AnimationDemoScene extends BaseScene {
 
 	private playAnimation(animName: string) {
 		this.currentAnimation = animName;
-		
+
 		if (this.animationTitle) {
 			this.animationTitle.setText(`Playing: ${animName} (looping)`);
 		}
 
 		const centerX = 213;
 		const centerY = 120;
-		
+
 		// Stop any current animation
 		if (this.currentAnim) {
 			// Remove sprite from illumination targets
@@ -312,24 +309,25 @@ export class AnimationDemoScene extends BaseScene {
 			}
 			this.currentAnim.dead = true;
 		}
-		
+
 		// Start the new predefined animation at the sprite's position with looping
 		this.startLoopingAnimation(animName, centerX, centerY);
 	}
 
 	private startLoopingAnimation(animName: string, x: number, y: number) {
 		const playNextIteration = () => {
-			if (this.currentAnimation === animName) { // Only continue if this is still the current animation
+			if (this.currentAnimation === animName) {
+				// Only continue if this is still the current animation
 				const newAnim = this.addPredefinedAnim(animName, x, y);
 				if (newAnim && this.enemySprite) {
 					this.currentAnim = newAnim;
-					
+
 					// HD-2D priming: connect sprite to particle illumination
 					this.currentAnim.addIlluminationTarget(this.enemySprite);
 
 					// Reset timeline event log for new iteration
 					this.burstEvents.length = 0;
-					
+
 					// Connect burst events to sprite flash
 					this.currentAnim.onBurst((intensity) => {
 						console.log("Burst event", intensity);
@@ -345,10 +343,9 @@ export class AnimationDemoScene extends BaseScene {
 				}
 			}
 		};
-		
+
 		playNextIteration();
 	}
-	
 
 	private createInstructionText() {
 		new TextBlock(this, {
@@ -369,7 +366,7 @@ export class AnimationDemoScene extends BaseScene {
 	update(time: number, delta: number): void {
 		super.update(time, delta);
 		this.updateTimeline();
-		
+
 		// Check if current animation is dead and restart it for looping
 		if (this.currentAnim && this.currentAnim.dead && this.currentAnimation) {
 			const centerX = 213;
@@ -396,10 +393,17 @@ export class AnimationDemoScene extends BaseScene {
 
 		// Draw baseline
 		g.lineStyle(1, Palette.WHITE.num, 1);
-		g.strokeLineShape(new Phaser.Geom.Line(originX, originY, originX + this.timelineWidth, originY));
+		g.strokeLineShape(
+			new Phaser.Geom.Line(
+				originX,
+				originY,
+				originX + this.timelineWidth,
+				originY,
+			),
+		);
 
 		// Filter events within window
-		this.burstEvents = this.burstEvents.filter(e => now - e.time <= windowMs);
+		this.burstEvents = this.burstEvents.filter((e) => now - e.time <= windowMs);
 
 		// Determine max intensity in window for scaling (avoid division by zero)
 		let maxIntensity = 1;
@@ -415,13 +419,15 @@ export class AnimationDemoScene extends BaseScene {
 			const barHeight = (e.intensity / maxIntensity) * this.timelineHeight;
 
 			g.lineStyle(2, Palette.YELLOW.num, 1);
-			g.strokeLineShape(new Phaser.Geom.Line(x, originY, x, originY - barHeight));
+			g.strokeLineShape(
+				new Phaser.Geom.Line(x, originY, x, originY - barHeight),
+			);
 		}
 	}
 
 	destroy() {
-		if (this.focusManager) {
-			this.focusManager.destroy();
+		if (this.animationFocusManager) {
+			this.animationFocusManager.destroy();
 		}
 	}
 }

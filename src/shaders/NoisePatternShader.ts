@@ -1,4 +1,5 @@
-export class NoisePatternShader extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
+export class NoisePatternShader extends Phaser.Renderer.WebGL.Pipelines
+	.PostFXPipeline {
 	private _time: number = 0;
 	private _speed: number = 1.0;
 	private _theme: number = 1; // 0 = forest, 1 = castle
@@ -6,7 +7,7 @@ export class NoisePatternShader extends Phaser.Renderer.WebGL.Pipelines.PostFXPi
 	constructor(game: Phaser.Game) {
 		super({
 			game,
-			name: 'NoisePattern',
+			name: "NoisePattern",
 			renderTarget: true,
 			fragShader: `
 				precision mediump float;
@@ -127,15 +128,15 @@ export class NoisePatternShader extends Phaser.Renderer.WebGL.Pipelines.PostFXPi
  				    col.rgb = mix(forestLit, castleLit, isCastle);
 				    gl_FragColor = col;
 				}
-			`
+			`,
 		});
 	}
 
 	onPreRender(): void {
-		this.set1f('uTime', this._time);
-		this.set1f('uSpeed', this._speed);
-		this.set1f('uTheme', this._theme);
-		this.set2f('uResolution', this.renderer.width, this.renderer.height);
+		this.set1f("uTime", this._time);
+		this.set1f("uSpeed", this._speed);
+		this.set1f("uTheme", this._theme);
+		this.set2f("uResolution", this.renderer.width, this.renderer.height);
 	}
 
 	get time(): number {
@@ -164,10 +165,13 @@ export class NoisePatternShader extends Phaser.Renderer.WebGL.Pipelines.PostFXPi
 
 	static registerShader(game: Phaser.Game): void {
 		const renderer = game.renderer;
-		
+
 		if (renderer.type === Phaser.WEBGL) {
 			const webglRenderer = renderer as Phaser.Renderer.WebGL.WebGLRenderer;
-			webglRenderer.pipelines.addPostPipeline('NoisePattern', NoisePatternShader);
+			webglRenderer.pipelines.addPostPipeline(
+				"NoisePattern",
+				NoisePatternShader,
+			);
 		}
 	}
-} 
+}

@@ -1,23 +1,13 @@
 import Phaser from "phaser";
-import cursorImg from "../assets/cursor.png";
-import particleSheet from "../assets/spritesheet_transparent.png";
-import { DrawUtils } from "../draw-utils";
-import { loadFonts } from "../fonts";
-import { Palette } from "../palette";
-import { Anim, type EmitterConfig } from "../base/ps";
 import animPredefs from "../assets/anims.toml";
+import { Anim, type EmitterConfig } from "../base/ps";
+import { Palette } from "../palette";
 import { FocusManager } from "../ui/state/FocusManager";
-
-export enum InputMode {
-	UI,
-	WORLD,
-}
 
 export abstract class BaseScene extends Phaser.Scene {
 	private cursorSprite?: Phaser.GameObjects.Image;
 	private activeAnims: Anim[] = [];
 	protected focusManager!: FocusManager;
-	protected inputMode: InputMode = InputMode.WORLD;
 
 	// Dithering toggle state
 	private ditheringEnabled: boolean = true;
@@ -27,17 +17,6 @@ export abstract class BaseScene extends Phaser.Scene {
 	}
 
 	preload() {
-		if (!this.textures.exists("cursor")) {
-			this.load.image("cursor", cursorImg);
-		}
-		// Load 8x8 sprite sheet used by the custom particle system
-		if (!this.textures.exists("ps_particle")) {
-			this.load.spritesheet("ps_particle", particleSheet, {
-				frameWidth: 8,
-				frameHeight: 8,
-			});
-		}
-		DrawUtils.preloadAssets(this);
 		this.preloadSceneAssets();
 	}
 
@@ -47,13 +26,11 @@ export abstract class BaseScene extends Phaser.Scene {
 		this.focusManager = new FocusManager(this);
 		this.setupCursor();
 
-		await loadFonts();
-
 		// Apply Floyd-Steinberg dithering to the entire scene
 		this.setupSceneDithering();
 
-		// Setup dithering toggle key
-		this.setupDitheringToggle();
+		// Setup debug event listeners
+		this.setupDebugEvents();
 
 		this.createScene();
 	}
@@ -79,9 +56,6 @@ export abstract class BaseScene extends Phaser.Scene {
 	}
 
 	private setupSceneDithering() {
-		// Register dithering shaders with the game
-		DrawUtils.registerStylizedDitherShader(this.game);
-
 		// Apply Floyd-Steinberg dithering to the main camera (entire scene)
 		const mainCamera = this.cameras.main;
 
@@ -108,16 +82,22 @@ export abstract class BaseScene extends Phaser.Scene {
 		}
 	}
 
-	private setupDitheringToggle() {
-		// Add keyboard listener for 'D' key to toggle dithering
-		this.input.keyboard?.on("keydown-D", () => {
+	private setupDebugEvents() {
+		// Listen for debug events from the HTML UI
+		this.events.on("debug:toggleDithering", () => {
 			this.toggleDithering();
 		});
 	}
 
 	private toggleDithering() {
-		// No check for input fields for now to satisfy linter
-		this.ditheringEnabled = !this.ditheringEnabled;
+		// Get the desired state from the UI
+		const desiredState =
+			typeof window !== "undefined" && window.debugStore
+				? window.debugStore.dithering
+				: !this.ditheringEnabled;
+
+		this.ditheringEnabled = desiredState;
+		console.log("Scene dithering set to:", this.ditheringEnabled);
 
 		const mainCamera = this.cameras.main;
 
@@ -146,9 +126,16 @@ export abstract class BaseScene extends Phaser.Scene {
 				console.error("Failed to disable dithering:", error);
 			}
 		}
+
+		// Don't update the HTML UI state here - let Alpine.js handle it to avoid double-toggle
 	}
 
-	addPredefinedAnim(key: string, x: number, y: number, playSpeed = 1): Anim | undefined {
+	addPredefinedAnim(
+		key: string,
+		x: number,
+		y: number,
+		playSpeed = 1,
+	): Anim | undefined {
 		const animConfigs = (animPredefs.anims as Record<string, EmitterConfig[]>)[
 			key
 		];

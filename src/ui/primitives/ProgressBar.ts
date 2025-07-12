@@ -58,7 +58,7 @@ export class ProgressBar extends Phaser.GameObjects.Container {
 			this.animationTween = undefined;
 		}
 
-		if (!animate || this.options.animationDuration === 0) {
+		if (!animate || this.options.animationDuration === 0 || !this.scene || !this.scene.tweens) {
 			this.currentValue = clampedValue;
 			this.redraw();
 			return;

@@ -1,6 +1,6 @@
 /**
  * Generic FSM-based Focus Management System
- * 
+ *
  * A completely configurable state machine that scenes can define their own
  * states, events, and transitions for. No hardcoded behavior.
  */
@@ -48,8 +48,7 @@ export interface FSMConfig<TState extends FsmState, TEvent extends FsmEvent> {
 export class GenericFocusStateMachine<
 	TState extends FsmState,
 	TEvent extends FsmEvent,
-> extends Phaser.Events.EventEmitter
-{
+> extends Phaser.Events.EventEmitter {
 	private currentState: TState;
 	private states: Map<string, StateEntry<TState>> = new Map();
 	private transitions: StateTransition<TState, TEvent>[] = [];
@@ -92,9 +91,12 @@ export class GenericFocusStateMachine<
 		if (!this.states.has(stateId)) {
 			// We create a "proxy" state entry. The full state object
 			// will be populated when we actually transition to it.
-			this.states.set(stateId, { state: { id: stateId } as TState, component: null });
+			this.states.set(stateId, {
+				state: { id: stateId } as TState,
+				component: null,
+			});
 		}
-		
+
 		const stateEntry = this.states.get(stateId);
 		if (stateEntry) {
 			stateEntry.component = component;
@@ -163,7 +165,7 @@ export class GenericFocusStateMachine<
 	private transitionTo(newState: TState, triggerEvent: TEvent): void {
 		const oldState = this.currentState;
 		const oldStateEntry = this.states.get(oldState.id);
-		
+
 		// Ensure the new state is registered
 		if (!this.states.has(newState.id)) {
 			this.states.set(newState.id, { state: newState, component: null });
@@ -171,7 +173,6 @@ export class GenericFocusStateMachine<
 		const newStateEntry = this.states.get(newState.id)!;
 		// Update state object in case it's a new instance of an existing ID
 		newStateEntry.state = newState;
-
 
 		// Exit old state
 		if (oldStateEntry) {
@@ -195,7 +196,6 @@ export class GenericFocusStateMachine<
 		if (newStateEntry.component) {
 			newStateEntry.component.activate();
 		}
-
 
 		// Emit state change event
 		this.emit("stateChanged", {
@@ -255,7 +255,7 @@ export class GenericFocusStateMachine<
 	 */
 	private handleKeyDown(event: KeyboardEvent): void {
 		switch (event.key) {
-			case "Tab":
+			case "Tab": {
 				event.preventDefault();
 				// Tab navigation within current component
 				const currentComponent = this.getCurrentComponent();
@@ -267,6 +267,7 @@ export class GenericFocusStateMachine<
 					}
 				}
 				break;
+			}
 
 			case "Escape":
 				event.preventDefault();
@@ -274,7 +275,7 @@ export class GenericFocusStateMachine<
 				this.emit("cancelRequested");
 				break;
 
-			case "Enter":
+			case "Enter": {
 				event.preventDefault();
 				// Current component should handle Enter
 				const component = this.getCurrentComponent();
@@ -282,6 +283,7 @@ export class GenericFocusStateMachine<
 					(component as any).handleEnter();
 				}
 				break;
+			}
 		}
 	}
 

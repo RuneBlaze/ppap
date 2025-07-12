@@ -1,6 +1,6 @@
+import path from "path";
 import { defineConfig } from "vite";
 import { ViteToml } from "vite-plugin-toml";
-import path from "path";
 
 export default defineConfig({
 	plugins: [ViteToml()],

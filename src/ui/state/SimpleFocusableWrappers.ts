@@ -1,6 +1,6 @@
 /**
  * Simplified Focusable Wrappers for FSM-based Focus Management
- * 
+ *
  * These are much simpler than the original wrappers since we don't need
  * complex token management or registration logic.
  */

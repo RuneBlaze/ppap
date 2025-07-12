@@ -18,14 +18,15 @@ export const SHADER_KEY = "Hover3D" as const;
  * GameObject should maintain its own reference and update the uniforms every
  * frame via the standard `set1f/2f` helpers.
  */
-export class Hover3DShader extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
-  constructor(game: Phaser.Game) {
-    super({
-      game,
-      // We need a render target so individual GameObjects can own a copy of
-      // the pipeline and manipulate its uniforms independently.
-      renderTarget: true,
-      fragShader: `
+export class Hover3DShader extends Phaser.Renderer.WebGL.Pipelines
+	.PostFXPipeline {
+	constructor(game: Phaser.Game) {
+		super({
+			game,
+			// We need a render target so individual GameObjects can own a copy of
+			// the pipeline and manipulate its uniforms independently.
+			renderTarget: true,
+			fragShader: `
 precision mediump float;
 
 uniform sampler2D uMainSampler;
@@ -97,6 +98,6 @@ void main() {
 
     gl_FragColor = color;
 }`,
-    });
-  }
-} 
+		});
+	}
+}

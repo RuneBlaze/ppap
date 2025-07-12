@@ -1,20 +1,25 @@
+import { filter, pipe, sample, sort } from "remeda";
+import { match } from "ts-pattern";
+import { BattleSprite } from "../base/BattleSprite";
 import { Palette } from "../palette";
-import { Menu, type MenuItem } from "../ui/components/Menu";
-import { AllyStatusPanel, type Character } from "../ui/components/AllyStatusPanel";
+import type { NoisePatternShader } from "../shaders/NoisePatternShader";
 import { ActionWidget } from "../ui/components/ActionWidget";
+import {
+	AllyStatusPanel,
+	type Character,
+} from "../ui/components/AllyStatusPanel";
+import { BattleQueue, type QueueEntry } from "../ui/components/BattleQueue";
+import { Menu, type MenuItem } from "../ui/components/Menu";
 import { ProgressBar } from "../ui/primitives/ProgressBar";
 import { TextBlock } from "../ui/primitives/TextBlock";
-import { Window } from "../ui/primitives/Window";
-import { FocusableMenu } from "../ui/state/SimpleFocusableWrappers";
 import { GenericFocusStateMachine } from "../ui/state/GenericFocusStateMachine";
-import { battleFocusConfig, type BattleFocusState, type BattleFocusEvent } from "./BattleFocusConfig";
+import { FocusableMenu } from "../ui/state/SimpleFocusableWrappers";
 import { BaseScene } from "./BaseScene";
-import { match } from "ts-pattern";
-import { filter, pipe, sample, sort } from "remeda";
-import { BattleSprite } from "../base/BattleSprite";
-import { getFontStyle } from "../fonts";
-import { NoisePatternShader } from "../shaders/NoisePatternShader";
-
+import {
+	type BattleFocusEvent,
+	type BattleFocusState,
+	battleFocusConfig,
+} from "./BattleFocusConfig";
 
 export enum ActionType {
 	ATTACK = "attack",
@@ -70,9 +75,11 @@ const PLAYER_WINDOW_HEIGHT = 90;
 const VERTICAL_SPACING = 8;
 const PORTRAIT_SIZE = 48;
 
-
 export class BattleScene extends BaseScene {
-	protected declare focusManager: GenericFocusStateMachine<BattleFocusState, BattleFocusEvent>;
+	protected declare focusManager: GenericFocusStateMachine<
+		BattleFocusState,
+		BattleFocusEvent
+	>;
 	// Character data
 	private playerParty: BattleCharacter[] = [];
 	private enemyParty: BattleCharacter[] = [];
@@ -84,10 +91,10 @@ export class BattleScene extends BaseScene {
 	private skillMenu: Menu | null = null;
 	private targetMenu: Menu | null = null;
 	private actionWidgets: ActionWidget[] = [];
-	private selectedActionIndicators: Map<string, { icon: Phaser.GameObjects.Image; text: Phaser.GameObjects.Text }> = new Map();
 
 	// Character display elements
 	private allyStatusPanel: AllyStatusPanel | null = null;
+	private battleQueue: BattleQueue | null = null;
 	private enemyHPBars: ProgressBar[] = [];
 	private enemySprites: BattleSprite[] = [];
 	private activePlayerIndicator: Phaser.GameObjects.Graphics | null = null;
@@ -102,8 +109,15 @@ export class BattleScene extends BaseScene {
 	// Debug
 	private debugGraphics: Phaser.GameObjects.Graphics | null = null;
 	private debugComponentIndex = -1; // -1 is off
-	private debugComponents: { name: string; getBounds: () => Phaser.Geom.Rectangle }[] =
-		[];
+	private debugComponents: {
+		name: string;
+		getBounds: () => Phaser.Geom.Rectangle;
+	}[] = [];
+
+	// Battle state
+	private isResolvingActions = false; // Used to prevent double resolution
+	private resolutionQueue: BattleCharacter[] = [];
+	private executedActions = new Set<string>(); // Track executed character IDs
 
 	// Available skills
 	private availableSkills: Skill[] = [
@@ -142,61 +156,17 @@ export class BattleScene extends BaseScene {
 	}
 
 	protected preloadSceneAssets() {
-		// Assets are preloaded in BaseScene
-		if (!this.textures.exists("enemies")) {
-			this.load.spritesheet("enemies", "src/assets/enemies.png", {
-				frameWidth: 64,
-				frameHeight: 64,
-			});
-		}
-		if (!this.textures.exists("portrait")) {
-			this.load.image("portrait", "src/assets/portrait.png");
-		}
-		if (!this.textures.exists("icons")) {
-			this.load.spritesheet("icons", "src/assets/icons_full_16.png", {
-				frameWidth: 16,
-				frameHeight: 16,
-			});
-		}
-
-		// Shader will be registered in createScene when needed
-
-		// Create a simple texture for the background
-		if (!this.textures.exists("backgroundTexture")) {
-			const canvas = this.textures.createCanvas("backgroundTexture", SCENE_WIDTH, SCENE_HEIGHT);
-			if (canvas) {
-				const ctx = canvas.getContext("2d");
-				if (ctx) {
-					ctx.fillStyle = "#ffffff";
-					ctx.fillRect(0, 0, SCENE_WIDTH, SCENE_HEIGHT);
-					canvas.refresh();
-				}
-			}
-		}
+		// Assets are now preloaded in BootScene
 	}
 
 	protected createScene() {
-		// Register the time gradient shader
-		try {
-			NoisePatternShader.registerShader(this.game);
-		} catch (error) {
-			console.warn("Could not register NoisePatternShader:", error);
-		}
+		// Shaders are now registered in BootScene
 
 		this.initializeBattleData();
 		this.createUI();
 		this.initializeFocusManager(); // Must be after UI is created
 		this.initializeDebugComponents(); // Must be after UI is created
 		this.startBattle();
-
-		this.time.addEvent({
-			delay: 2000,
-			callback: () => {
-				this.addPredefinedAnim("confetti_left", 213, 120);
-			},
-			loop: true,
-		});
-
 		this.activePlayerIndicator = this.add.graphics().setDepth(900);
 	}
 
@@ -233,33 +203,38 @@ export class BattleScene extends BaseScene {
 
 		// Register components and their lifecycle hooks
 		this.focusManager.registerComponent(
-			'actionMenu',
+			"actionMenu",
 			new FocusableMenu(this.createActionMenu()),
-			(state) => this.showActionMenu(state as BattleFocusState & { id: 'actionMenu' }),
-			() => this.hideActionMenu()
+			(state) =>
+				this.showActionMenu(state as BattleFocusState & { id: "actionMenu" }),
+			() => this.hideActionMenu(),
 		);
 
 		this.focusManager.registerComponent(
-			'skillMenu',
+			"skillMenu",
 			new FocusableMenu(this.createSkillMenu()),
-			(state) => this.showSkillMenu(state as BattleFocusState & { id: 'skillMenu' }),
-			() => this.hideSkillMenu()
-		);
-		
-		this.focusManager.registerComponent(
-			'targetMenu',
-			new FocusableMenu(this.createTargetMenu()),
-			(state) => this.showTargetMenu(state as BattleFocusState & { id: 'targetMenu' }),
-			() => this.hideTargetMenu()
+			(state) =>
+				this.showSkillMenu(state as BattleFocusState & { id: "skillMenu" }),
+			() => this.hideSkillMenu(),
 		);
 
+		this.focusManager.registerComponent(
+			"targetMenu",
+			new FocusableMenu(this.createTargetMenu()),
+			(state) =>
+				this.showTargetMenu(state as BattleFocusState & { id: "targetMenu" }),
+			() => this.hideTargetMenu(),
+		);
 	}
 
 	private updateActivePlayerVisuals(character: BattleCharacter) {
-		// Update the ally status panel to show the active character
+		// Update the ally status panel to show the active character with animation
 		this.allyStatusPanel?.setActiveCharacter(character.id);
+		this.animateCharacterTransition(character);
 
-		const playerIndex = this.playerParty.findIndex((p) => p.id === character.id);
+		const playerIndex = this.playerParty.findIndex(
+			(p) => p.id === character.id,
+		);
 		if (playerIndex === -1) {
 			return;
 		}
@@ -272,44 +247,96 @@ export class BattleScene extends BaseScene {
 		// Get the anchor point for menus (center of the player's section)
 		const anchorX = sectionX + playerSectionWidth / 2;
 
-		// 2. Update Action Menu position
+		// 2. Update Action Menu position with smooth animation
 		if (this.actionMenu) {
 			const menuWindow = this.actionMenu.getWindow();
 			const menuWidth = menuWindow.getWidth();
 			const menuHeight = menuWindow.getHeight();
-			const menuX = anchorX - menuWidth / 2;
-			const menuY = this.playerWindowY - menuHeight - VERTICAL_SPACING;
+			const targetMenuX = anchorX - menuWidth / 2;
+			const targetMenuY = this.playerWindowY - menuHeight - VERTICAL_SPACING;
 
-			this.actionMenu.setPosition(
-				Phaser.Math.Clamp(
-					menuX,
-					OUTER_MARGIN,
-					SCENE_WIDTH - OUTER_MARGIN - menuWidth,
-				),
-				menuY,
+			const clampedX = Phaser.Math.Clamp(
+				targetMenuX,
+				OUTER_MARGIN,
+				SCENE_WIDTH - OUTER_MARGIN - menuWidth,
 			);
+
+			// Smooth position transition
+			this.tweens.add({
+				targets: this.actionMenu,
+				x: clampedX,
+				y: targetMenuY,
+				duration: 200,
+				ease: "Quad.easeOut",
+			});
 		}
 
-		// 3. Update Skill Menu position
+		// 3. Update Skill Menu position with smooth animation
 		if (this.skillMenu) {
 			const menuWindow = this.skillMenu.getWindow();
 			const menuWidth = menuWindow.getWidth();
 			const menuHeight = menuWindow.getHeight();
-			const menuX = anchorX - menuWidth / 2;
-			const menuY = this.playerWindowY - menuHeight - VERTICAL_SPACING;
+			const targetMenuX = anchorX - menuWidth / 2;
+			const targetMenuY = this.playerWindowY - menuHeight - VERTICAL_SPACING;
 
-			this.skillMenu.setPosition(
-				Phaser.Math.Clamp(
-					menuX,
-					OUTER_MARGIN,
-					SCENE_WIDTH - OUTER_MARGIN - menuWidth,
-				),
-				menuY,
+			const clampedX = Phaser.Math.Clamp(
+				targetMenuX,
+				OUTER_MARGIN,
+				SCENE_WIDTH - OUTER_MARGIN - menuWidth,
 			);
+
+			// Smooth position transition
+			this.tweens.add({
+				targets: this.skillMenu,
+				x: clampedX,
+				y: targetMenuY,
+				duration: 200,
+				ease: "Quad.easeOut",
+			});
 		}
 
-		// 4. Show action widgets in radial layout
+		// 4. Show action widgets in radial layout with animation
 		this.showActionWidgets(anchorX, this.playerWindowY - 60);
+	}
+
+	private animateCharacterTransition(character: BattleCharacter) {
+		// Pokemon B2W2 style character transition effects
+		const playerIndex = this.playerParty.findIndex(
+			(p) => p.id === character.id,
+		);
+		if (playerIndex === -1 || !this.allyStatusPanel) return;
+
+		// Get the character's portrait bounds for animation
+		const characterBounds = this.allyStatusPanel.getCharacterSectionBounds(
+			character.id,
+		);
+		if (!characterBounds) return;
+
+		// Create selection flash effect
+		const flashGraphics = this.add.graphics();
+		flashGraphics.setDepth(200);
+		flashGraphics.fillStyle(Palette.YELLOW.num, 0.6);
+		flashGraphics.fillRectShape(characterBounds);
+
+		// Flash animation - quick pulse
+		this.tweens.add({
+			targets: flashGraphics,
+			alpha: { from: 0.6, to: 0 },
+			duration: 150,
+			yoyo: true,
+			repeat: 1,
+			onComplete: () => flashGraphics.destroy(),
+		});
+
+		// Add particle burst effect at character position
+		this.addPredefinedAnim(
+			"burst",
+			characterBounds.x + characterBounds.width / 2,
+			characterBounds.y + characterBounds.height / 2,
+		);
+
+		// Slight screen shake for impact
+		this.cameras.main.shake(100, 0.003);
 	}
 
 	private getAvailableActions(character: BattleCharacter): ActionDefinition[] {
@@ -318,14 +345,14 @@ export class BattleScene extends BaseScene {
 				id: "attack",
 				name: "Attack",
 				type: ActionType.ATTACK,
-				iconFrame: 0
+				iconFrame: 0,
 			},
 			{
 				id: "defend",
-				name: "Defend", 
+				name: "Defend",
 				type: ActionType.DEFEND,
-				iconFrame: 12
-			}
+				iconFrame: 12,
+			},
 		];
 
 		// Add individual skills that the character can afford
@@ -339,7 +366,7 @@ export class BattleScene extends BaseScene {
 					skillId: skill.id,
 					mpCost: skill.mpCost,
 					damage: skill.damage,
-					healing: skill.healing
+					healing: skill.healing,
 				});
 			}
 		});
@@ -349,7 +376,7 @@ export class BattleScene extends BaseScene {
 			id: "potion",
 			name: "Potion",
 			type: ActionType.ITEM,
-			iconFrame: 36
+			iconFrame: 36,
 		});
 
 		return actions;
@@ -359,13 +386,20 @@ export class BattleScene extends BaseScene {
 		// Clear existing widgets
 		this.hideActionWidgets();
 
-		const currentCharacter = (this.focusManager.getCurrentState() as any).character;
+		const currentCharacter = (this.focusManager.getCurrentState() as any)
+			.character;
 		const availableActions = this.getAvailableActions(currentCharacter);
 
 		// Predefined "random" offsets that look aesthetically pleasing
 		const offsets = [
-			{ x: -4, y: -6 },    { x: 3, y: -1 },     { x: -2, y: 4 },     { x: 4, y: 8 },
-			{ x: -3, y: 12 },    { x: 2, y: 16 },     { x: -1, y: 20 },    { x: 5, y: 24 }
+			{ x: -4, y: -6 },
+			{ x: 3, y: -1 },
+			{ x: -2, y: 4 },
+			{ x: 4, y: 8 },
+			{ x: -3, y: 12 },
+			{ x: 2, y: 16 },
+			{ x: -1, y: 20 },
+			{ x: 5, y: 24 },
 		];
 
 		const verticalSpacing = 20;
@@ -375,7 +409,7 @@ export class BattleScene extends BaseScene {
 			const column = Math.floor(index / maxPerColumn);
 			const row = index % maxPerColumn;
 			const offset = offsets[index] || { x: 0, y: 0 };
-			
+
 			const x = centerX + column * 30 + offset.x; // 30px between columns
 			const y = centerY - 30 + row * verticalSpacing + offset.y; // Start above center
 
@@ -386,7 +420,33 @@ export class BattleScene extends BaseScene {
 				iconFrame: actionDef.iconFrame,
 				size: 16,
 				label: actionDef.name,
-				onSelect: () => this.onActionSelected(actionDef)
+				onSelect: () => this.onActionSelected(actionDef),
+			});
+
+			// Animate widget appearance with staggered timing
+			const animationDelay = index * 50; // 50ms delay between each widget
+			widget.setAlpha(0);
+			widget.setScale(0.3);
+
+			this.time.delayedCall(animationDelay, () => {
+				this.tweens.add({
+					targets: widget,
+					alpha: { from: 0, to: 1 },
+					scaleX: { from: 0.3, to: 1.2 },
+					scaleY: { from: 0.3, to: 1.2 },
+					duration: 150,
+					ease: "Back.easeOut",
+					onComplete: () => {
+						// Secondary bounce to normal size
+						this.tweens.add({
+							targets: widget,
+							scaleX: { from: 1.2, to: 1 },
+							scaleY: { from: 1.2, to: 1 },
+							duration: 100,
+							ease: "Quad.easeOut",
+						});
+					},
+				});
 			});
 
 			this.actionWidgets.push(widget);
@@ -394,23 +454,24 @@ export class BattleScene extends BaseScene {
 	}
 
 	private hideActionWidgets() {
-		this.actionWidgets.forEach(widget => widget.destroy());
+		this.actionWidgets.forEach((widget) => widget.destroy());
 		this.actionWidgets = [];
 	}
 
 	private onActionSelected(actionDef: ActionDefinition) {
 		console.log(`Action selected: ${actionDef.name}`);
-		
+
 		// Hide widgets after selection
 		this.hideActionWidgets();
 
-		const currentCharacter = (this.focusManager.getCurrentState() as any).character;
-		
+		const currentCharacter = (this.focusManager.getCurrentState() as any)
+			.character;
+
 		// Create the battle action with auto-target selection
 		const action: BattleAction = {
 			type: actionDef.type,
 			skillId: actionDef.skillId,
-			targetId: this.getRandomTarget(actionDef)
+			targetId: this.getRandomTarget(actionDef),
 		};
 
 		// Show selected action indicator on character
@@ -422,12 +483,15 @@ export class BattleScene extends BaseScene {
 
 	private getRandomTarget(actionDef: ActionDefinition): string {
 		// For attack actions and damage skills, target enemies
-		if (actionDef.type === ActionType.ATTACK || (actionDef.damage && actionDef.damage > 0)) {
+		if (
+			actionDef.type === ActionType.ATTACK ||
+			(actionDef.damage && actionDef.damage > 0)
+		) {
 			const aliveEnemies = filter(this.enemyParty, (e) => e.isAlive);
 			const randomEnemy = sample(aliveEnemies, 1)[0];
 			return randomEnemy?.id || "";
 		}
-		
+
 		// For healing skills, target allies
 		if (actionDef.healing && actionDef.healing > 0) {
 			const aliveAllies = filter(this.playerParty, (p) => p.isAlive);
@@ -439,43 +503,21 @@ export class BattleScene extends BaseScene {
 		return "";
 	}
 
-	private showSelectedActionIndicator(character: BattleCharacter, actionDef: ActionDefinition) {
-		// Remove existing indicator for this character
-		this.hideSelectedActionIndicator(character.id);
-
-		const playerIndex = this.playerParty.findIndex((p) => p.id === character.id);
-		if (playerIndex === -1) return;
-
-		const playerSectionWidth = 64;
-		const panelWidth = this.playerParty.length * 64; // 64px per character
-		const panelX = (SCENE_WIDTH - panelWidth) / 2; // Center horizontally
-		const sectionX = panelX + playerIndex * playerSectionWidth;
-		const centerX = sectionX + playerSectionWidth / 2;
-
-		// Create small icon next to character avatar
-		const icon = this.add.image(centerX + 20, this.playerWindowY + 20, "icons");
-		icon.setFrame(actionDef.iconFrame);
-		icon.setDisplaySize(12, 12);
-		icon.setDepth(100);
-
-		// Create text label
-		const text = this.add.text(centerX + 20, this.playerWindowY + 32, actionDef.name, {
-			...getFontStyle("everydayStandard"),
-			color: Palette.YELLOW.hex
-		});
-		text.setOrigin(0.5, 0);
-		text.setDepth(100);
-
-		this.selectedActionIndicators.set(character.id, { icon, text });
+	private showSelectedActionIndicator(
+		character: BattleCharacter,
+		actionDef: ActionDefinition,
+	) {
+		// Use the new badge system in AllyStatusPanel
+		this.allyStatusPanel?.showActionBadge(
+			character.id,
+			actionDef.name,
+			actionDef.iconFrame
+		);
 	}
 
 	private hideSelectedActionIndicator(characterId: string) {
-		const indicator = this.selectedActionIndicators.get(characterId);
-		if (indicator) {
-			indicator.icon.destroy();
-			indicator.text.destroy();
-			this.selectedActionIndicators.delete(characterId);
-		}
+		// Use the new badge system in AllyStatusPanel
+		this.allyStatusPanel?.hideActionBadge(characterId);
 	}
 
 	private initializeDebugComponents() {
@@ -506,22 +548,28 @@ export class BattleScene extends BaseScene {
 				),
 		});
 
-				// --- Player Status Window ---
+		// Setup debug event listeners
+		this.events.on("debug:cycleBattleHighlight", () => {
+			this.cycleDebugHighlight();
+		});
 
-		// Register key listener
-		this.input.keyboard?.on("keydown-D", this.cycleDebugHighlight, this);
+		this.events.on("debug:resetBattleHighlight", () => {
+			this.resetDebugHighlight();
+		});
 	}
 
 	private cycleDebugHighlight() {
 		if (!this.debugGraphics) return;
 
-		this.debugComponentIndex = (this.debugComponentIndex + 1) % (this.debugComponents.length + 1);
+		this.debugComponentIndex =
+			(this.debugComponentIndex + 1) % (this.debugComponents.length + 1);
 
 		this.debugGraphics.clear();
 
 		if (this.debugComponentIndex >= this.debugComponents.length) {
 			// This is the "off" state
 			console.log("Debug highlight OFF");
+			this.updateDebugUIHighlight("Off");
 			return;
 		}
 
@@ -529,11 +577,28 @@ export class BattleScene extends BaseScene {
 		const bounds = component.getBounds();
 
 		console.log(`Debug highlight: ${component.name}`);
+		this.updateDebugUIHighlight(component.name);
 
 		this.debugGraphics.fillStyle(Palette.YELLOW.num, 0.3);
 		this.debugGraphics.fillRectShape(bounds);
 		this.debugGraphics.lineStyle(2, Palette.YELLOW.num);
 		this.debugGraphics.strokeRectShape(bounds);
+	}
+
+	private resetDebugHighlight() {
+		if (!this.debugGraphics) return;
+
+		this.debugComponentIndex = -1;
+		this.debugGraphics.clear();
+		this.updateDebugUIHighlight("Off");
+		console.log("Debug highlight reset");
+	}
+
+	private updateDebugUIHighlight(highlightName: string) {
+		// Update the HTML UI state
+		if (typeof window !== "undefined" && window.debugStore) {
+			window.debugStore.battleHighlight = highlightName;
+		}
 	}
 
 	private initializeBattleData() {
@@ -623,7 +688,6 @@ export class BattleScene extends BaseScene {
 			sort((a, b) => b.speed - a.speed),
 		);
 		this.turnIndex = 0;
-
 	}
 
 	private createUI() {
@@ -634,19 +698,28 @@ export class BattleScene extends BaseScene {
 
 	private createBattleLayout() {
 		// Create animated background with shader
-		this.backgroundSprite = this.add.image(SCENE_WIDTH / 2, SCENE_HEIGHT / 2, "backgroundTexture");
+		this.backgroundSprite = this.add.image(
+			SCENE_WIDTH / 2,
+			SCENE_HEIGHT / 2,
+			"backgroundTexture",
+		);
 		this.backgroundSprite.setDisplaySize(SCENE_WIDTH, SCENE_HEIGHT);
 		this.backgroundSprite.setDepth(-100); // Ensure it's behind everything
-		
+
 		// Apply the time gradient shader
 		try {
 			this.backgroundSprite.setPostPipeline("NoisePattern");
-			this.backgroundShader = this.backgroundSprite.getPostPipeline("NoisePattern") as NoisePatternShader;
+			this.backgroundShader = this.backgroundSprite.getPostPipeline(
+				"NoisePattern",
+			) as NoisePatternShader;
 			if (this.backgroundShader) {
 				this.backgroundShader.speed = 0.5; // Adjust animation speed
 			}
 		} catch (error) {
-			console.warn("Could not apply NoisePattern shader, falling back to static background:", error);
+			console.warn(
+				"Could not apply NoisePattern shader, falling back to static background:",
+				error,
+			);
 			// Fallback to static background
 			this.backgroundSprite.destroy();
 			const graphics = this.add.graphics();
@@ -679,13 +752,19 @@ export class BattleScene extends BaseScene {
 
 			// From pineapple-pen/assets/enemies.json: goblin is 18, orc is not in this sheet. Use 2.
 			const frame = enemy.name === "Goblin" ? 18 : 2;
-			const enemySprite = new BattleSprite(this, spriteX, spriteY, "enemies", frame);
+			const enemySprite = new BattleSprite(
+				this,
+				spriteX,
+				spriteY,
+				"enemies",
+				frame,
+			);
 			enemySprite.setScale(PORTRAIT_SIZE / 64); // Scale down 64x64 sprite
 			this.enemySprites.push(enemySprite);
 
 			// Name label (roughly centred)
 			new TextBlock(this, {
-				x: centerX - (enemy.name.length * 4),
+				x: centerX - enemy.name.length * 4,
 				y: enemyWindowY + 2,
 				text: enemy.name,
 				fontKey: "everydayStandard",
@@ -725,6 +804,15 @@ export class BattleScene extends BaseScene {
 			characters: this.playerParty,
 		});
 		this.allyStatusPanel.create();
+
+		// Create the battle queue on the left side
+		this.battleQueue = new BattleQueue(this, {
+			x: OUTER_MARGIN,
+			y: OUTER_MARGIN + ENEMY_WINDOW_HEIGHT + VERTICAL_SPACING,
+			width: 120,
+			maxVisible: 6,
+		});
+		this.battleQueue.create();
 	}
 
 	private startBattle() {
@@ -732,17 +820,28 @@ export class BattleScene extends BaseScene {
 	}
 
 	private processNextCharacter() {
+		// Don't process if we're in the middle of resolving actions
+		if (this.isResolvingActions) {
+			console.log("Skipping processNextCharacter - currently resolving actions");
+			return;
+		}
+
 		if (this.turnIndex >= this.turnOrder.length) {
 			// All characters have acted, resolve actions
+			console.log("All characters have acted, starting resolution...");
 			this.resolveActions();
 			return;
 		}
 
 		const currentCharacter = this.turnOrder[this.turnIndex];
+		console.log(`Processing character ${this.turnIndex + 1}/${this.turnOrder.length}: ${currentCharacter.name} (${currentCharacter.isPlayer ? 'Player' : 'Enemy'})`);
 
 		if (currentCharacter.isPlayer) {
 			// Player turn is now started by sending an event to the FSM
-			this.focusManager.sendEvent({ type: 'startPlayerTurn', character: currentCharacter });
+			this.focusManager.sendEvent({
+				type: "startPlayerTurn",
+				character: currentCharacter,
+			});
 		} else {
 			this.processEnemyAction(currentCharacter);
 		}
@@ -766,18 +865,24 @@ export class BattleScene extends BaseScene {
 				onSelect: () => {
 					// Defend is a complete action, no target needed.
 					// The scene will handle the logic, then tell the FSM the action is confirmed.
-					const character = (this.focusManager.getCurrentState() as any).character;
+					const character = (this.focusManager.getCurrentState() as any)
+						.character;
 					this.selectAction(character, { type: ActionType.DEFEND });
 				},
 			},
 			{
 				text: "Skills",
 				onSelect: () => {
-					const character = (this.focusManager.getCurrentState() as any).character;
-					const availableSkills = filter(this.availableSkills, 
+					const character = (this.focusManager.getCurrentState() as any)
+						.character;
+					const availableSkills = filter(
+						this.availableSkills,
 						(skill) => character.currentMP >= skill.mpCost,
 					);
-					this.focusManager.sendEvent({ type: "selectSkill", skills: availableSkills });
+					this.focusManager.sendEvent({
+						type: "selectSkill",
+						skills: availableSkills,
+					});
 				},
 			},
 			{
@@ -792,23 +897,72 @@ export class BattleScene extends BaseScene {
 			width: ACTION_MENU_WIDTH,
 			items: actionItems,
 			onCancel: () => this.focusManager.sendEvent({ type: "cancel" }),
+			transparent: true,
 		});
 		this.actionMenu.setVisible(false);
 		return this.actionMenu;
 	}
 
-	private toggleMenuVisibility(menu: Menu | null, isVisible: boolean) {
+	private toggleMenuVisibility(
+		menu: Menu | null,
+		isVisible: boolean,
+		usePopupAnimation = true,
+	) {
 		if (!menu) return;
 		const window = menu.getWindow();
+
 		if (isVisible) {
-			window.fadeIn({ duration: 300 });
 			menu.setVisible(true);
+
+			if (usePopupAnimation) {
+				// Pokemon B2W2 style popup animation
+				window.setAlpha(0);
+				window.setScale(0.7, 0.7);
+
+				// Animate in with bounce effect
+				this.tweens.add({
+					targets: window,
+					alpha: { from: 0, to: 1 },
+					scaleX: { from: 0.7, to: 1.05 },
+					scaleY: { from: 0.7, to: 1.05 },
+					duration: 150,
+					ease: "Back.easeOut",
+					onComplete: () => {
+						// Secondary bounce to normal size
+						this.tweens.add({
+							targets: window,
+							scaleX: { from: 1.05, to: 1 },
+							scaleY: { from: 1.05, to: 1 },
+							duration: 100,
+							ease: "Quad.easeOut",
+						});
+					},
+				});
+			} else {
+				window.fadeIn({ duration: 300 });
+			}
 		} else {
-			menu.setVisible(false);
-			window.fadeOut({ duration: 300 });
+			if (usePopupAnimation) {
+				// Animate out with shrink effect
+				this.tweens.add({
+					targets: window,
+					alpha: { from: 1, to: 0 },
+					scaleX: { from: 1, to: 0.8 },
+					scaleY: { from: 1, to: 0.8 },
+					duration: 120,
+					ease: "Quad.easeIn",
+					onComplete: () => {
+						menu.setVisible(false);
+						window.setScale(1, 1); // Reset scale for next show
+					},
+				});
+			} else {
+				menu.setVisible(false);
+				window.fadeOut({ duration: 300 });
+			}
 		}
 	}
-	
+
 	private showActionMenu(_state: BattleFocusState & { id: "actionMenu" }) {
 		// Don't show the old menu - widgets are already shown in updateActivePlayerVisuals
 		// this.toggleMenuVisibility(this.actionMenu, true);
@@ -818,7 +972,7 @@ export class BattleScene extends BaseScene {
 		this.toggleMenuVisibility(this.actionMenu, false);
 		this.hideActionWidgets();
 	}
-	
+
 	private createSkillMenu(): Menu {
 		this.skillMenu = new Menu(this, {
 			x: 0,
@@ -826,6 +980,7 @@ export class BattleScene extends BaseScene {
 			width: 200,
 			items: [], // Items are set dynamically in showSkillMenu
 			onCancel: () => this.focusManager.sendEvent({ type: "back" }),
+			transparent: true,
 		});
 		return this.skillMenu;
 	}
@@ -864,13 +1019,14 @@ export class BattleScene extends BaseScene {
 			width: 200,
 			items: [], // Set dynamically
 			onCancel: () => this.focusManager.sendEvent({ type: "back" }),
+			transparent: true,
 		});
 		return this.targetMenu;
 	}
 
 	private showTargetMenu(state: BattleFocusState & { id: "targetMenu" }) {
 		const { pendingAction } = state;
-		
+
 		// Determine which characters are valid targets
 		const skill = pendingAction.skillId
 			? this.availableSkills.find((s) => s.id === pendingAction.skillId)
@@ -888,7 +1044,7 @@ export class BattleScene extends BaseScene {
 				return [] as BattleCharacter[];
 			})
 			.otherwise(() => [] as BattleCharacter[]);
-		
+
 		const targetItems: MenuItem[] = potentialTargets.map((target) => ({
 			text: `${target.name} (${target.currentHP}/${target.maxHP} HP)`,
 			onSelect: () => this.selectTarget(target.id),
@@ -926,7 +1082,7 @@ export class BattleScene extends BaseScene {
 		character.selectedAction = action;
 
 		// Tell the FSM the action is done. The stateChanged listener will handle advancing the turn.
-		this.focusManager.sendEvent({ type: 'confirmAction', action });
+		this.focusManager.sendEvent({ type: "confirmAction", action });
 	}
 
 	private processEnemyAction(character: BattleCharacter) {
@@ -957,28 +1113,210 @@ export class BattleScene extends BaseScene {
 	private resolveActions() {
 		console.log("Resolving all actions...");
 
-		// Process all selected actions
-		this.turnOrder.forEach((character) => {
-			if (character.selectedAction && character.isAlive) {
-				this.executeAction(character, character.selectedAction);
-			}
-		});
+		// Prevent double resolution
+		if (this.isResolvingActions) {
+			console.log("Already resolving actions, skipping...");
+			return;
+		}
+
+		// Switch to resolution mode
+		this.isResolvingActions = true;
+		this.executedActions.clear(); // Reset executed actions for this round
+
+		// Create resolution queue sorted by speed (deduplicated by ID)
+		console.log("Original turnOrder:", this.turnOrder.map(c => ({ id: c.id, name: c.name, hasAction: !!c.selectedAction })));
+		
+		const uniqueCharacters = this.turnOrder.filter((char, index, array) => 
+			char.isAlive && !!char.selectedAction && 
+			array.findIndex(c => c.id === char.id) === index // Remove duplicates by ID
+		);
+		
+		console.log("After deduplication:", uniqueCharacters.map(c => ({ id: c.id, name: c.name })));
+		
+		this.resolutionQueue = pipe(
+			uniqueCharacters,
+			sort((a: BattleCharacter, b: BattleCharacter) => b.speed - a.speed), // Fastest first
+		);
+
+		console.log("Resolution queue:", this.resolutionQueue.map(c => ({ id: c.id, name: c.name, action: this.getActionDisplayName(c.selectedAction!) })));
+
+		// Build battle queue entries
+		const queueEntries: QueueEntry[] = this.resolutionQueue.map((character) => ({
+			characterId: character.id,
+			characterName: character.name,
+			isPlayer: character.isPlayer,
+			actionName: character.isPlayer 
+				? this.getActionDisplayName(character.selectedAction!)
+				: undefined, // Enemy actions hidden initially
+			actionIconFrame: character.isPlayer 
+				? this.getActionIconFrame(character.selectedAction!)
+				: undefined,
+			isRevealed: character.isPlayer, // Player actions always revealed
+		}));
+
+		// Show the battle queue
+		this.battleQueue?.setQueue(queueEntries);
+
+		// Start resolving actions one by one
+		this.resolveNextAction();
+	}
+
+	private resolveNextAction() {
+		console.log("resolveNextAction called");
+		
+		if (!this.battleQueue || this.battleQueue.isComplete()) {
+			// All actions resolved
+			console.log("Battle queue complete, finishing resolution");
+			this.finishResolution();
+			return;
+		}
+
+		const currentEntry = this.battleQueue.getCurrentEntry();
+		if (!currentEntry) {
+			console.log("No current entry, finishing resolution");
+			this.finishResolution();
+			return;
+		}
+
+		console.log(`Resolving action for: ${currentEntry.characterName}`);
+
+		const character = this.resolutionQueue.find(c => c.id === currentEntry.characterId);
+		if (!character || !character.selectedAction || this.executedActions.has(character.id)) {
+			// Skip this entry and move to next
+			console.log(`Skipping ${currentEntry.characterName} - no action, not found, or already executed`);
+			this.battleQueue.nextEntry();
+			this.time.delayedCall(500, () => this.resolveNextAction());
+			return;
+		}
+
+		// Mark this character as executed
+		this.executedActions.add(character.id);
+
+		// Reveal enemy action if needed
+		if (!character.isPlayer && !currentEntry.isRevealed) {
+			const actionName = this.getActionDisplayName(character.selectedAction);
+			const iconFrame = this.getActionIconFrame(character.selectedAction);
+			this.battleQueue.revealEnemyAction(character.id, actionName, iconFrame);
+		}
+
+		// Execute the action with visual feedback
+		console.log(`Executing action for ${character.name}: ${this.getActionDisplayName(character.selectedAction)}`);
+		this.executeActionWithAnimation(character, character.selectedAction)
+			.then(() => {
+				// Move to next action after a brief delay
+				this.battleQueue?.nextEntry();
+				this.time.delayedCall(800, () => this.resolveNextAction());
+			});
+	}
+
+	private finishResolution() {
+		console.log("Finishing resolution phase...");
+		this.isResolvingActions = false;
 
 		// Check for battle end conditions
 		if (this.checkBattleEnd()) {
 			return;
 		}
 
-		// Start next turn
-		this.startNextTurn();
+		// Hide the battle queue with a brief delay for visual feedback
+		this.time.delayedCall(1000, () => {
+			this.battleQueue?.setQueue([]);
+			console.log("Battle queue cleared, starting next turn...");
+			
+			// Start next turn
+			this.startNextTurn();
+		});
+	}
+
+	private async executeActionWithAnimation(character: BattleCharacter, action: BattleAction): Promise<void> {
+		return new Promise((resolve) => {
+			// Flash the character performing the action
+			const isPlayer = character.isPlayer;
+
+			if (isPlayer) {
+				// Flash ally status panel section
+				const characterBounds = this.allyStatusPanel?.getCharacterSectionBounds(character.id);
+				if (characterBounds) {
+					const flash = this.add.graphics();
+					flash.fillStyle(Palette.WHITE.num, 0.5);
+					flash.fillRectShape(characterBounds);
+					flash.setDepth(150);
+					this.tweens.add({
+						targets: flash,
+						alpha: { from: 0.5, to: 0 },
+						duration: 300,
+						onComplete: () => flash.destroy(),
+					});
+				}
+			} else {
+				// Flash enemy sprite
+				const enemyIndex = this.enemyParty.findIndex(e => e.id === character.id);
+				if (enemyIndex !== -1 && this.enemySprites[enemyIndex]) {
+					const enemySprite = this.enemySprites[enemyIndex];
+					if ('flash' in enemySprite && typeof enemySprite.flash === 'function') {
+						enemySprite.flash();
+					}
+				}
+			}
+
+			// Execute the actual action logic
+			this.executeAction(character, action);
+
+			// Resolve after animation
+			this.time.delayedCall(500, resolve);
+		});
+	}
+
+	private getActionDisplayName(action: BattleAction): string {
+		switch (action.type) {
+			case ActionType.ATTACK:
+				return "Attack";
+			case ActionType.DEFEND:
+				return "Defend";
+			case ActionType.SKILL:
+				const skill = this.availableSkills.find(s => s.id === action.skillId);
+				return skill?.name || "Skill";
+			case ActionType.ITEM:
+				return "Item";
+			default:
+				return "Action";
+		}
+	}
+
+	private getActionIconFrame(action: BattleAction): number {
+		switch (action.type) {
+			case ActionType.ATTACK:
+				return 0;
+			case ActionType.DEFEND:
+				return 12;
+			case ActionType.SKILL:
+				const skillIndex = this.availableSkills.findIndex(s => s.id === action.skillId);
+				return 24 + (skillIndex >= 0 ? skillIndex : 0);
+			case ActionType.ITEM:
+				return 36;
+			default:
+				return 0;
+		}
 	}
 
 	private executeAction(character: BattleCharacter, action: BattleAction) {
+		// Safety check to prevent multiple executions
+		if (!action) {
+			console.warn(`No action to execute for ${character.name}`);
+			return;
+		}
+
+		console.log(`[EXECUTE] ${character.name} (${character.id}) performs ${this.getActionDisplayName(action)}`);
+
 		match(action.type)
 			.with(ActionType.ATTACK, () => this.executeAttack(character))
 			.with(ActionType.DEFEND, () => console.log(`${character.name} defends!`))
-			.with(ActionType.SKILL, () => this.executeSkill(character, action.skillId!))
-			.with(ActionType.ITEM, () => console.log(`${character.name} uses an item!`))
+			.with(ActionType.SKILL, () =>
+				this.executeSkill(character, action.skillId!),
+			)
+			.with(ActionType.ITEM, () =>
+				console.log(`${character.name} uses an item!`),
+			)
 			.exhaustive();
 	}
 
@@ -1048,15 +1386,20 @@ export class BattleScene extends BaseScene {
 
 	private updatePlayerDisplay() {
 		// Update the ally status panel with current character data
-		this.allyStatusPanel?.setCharacters(this.playerParty);
-		this.allyStatusPanel?.updateDisplay();
+		if (this.allyStatusPanel && this.scene.scene && (this.scene.scene as any).isActive) {
+			this.allyStatusPanel.setCharacters(this.playerParty);
+			this.allyStatusPanel.updateDisplay();
+		}
 	}
 
 	private updateEnemyDisplay() {
+		if (!this.scene.scene || !(this.scene.scene as any).isActive) return;
+		
 		this.enemyParty.forEach((enemy, index) => {
 			const { currentHP } = enemy;
-			if (this.enemyHPBars[index]) {
-				this.enemyHPBars[index].setValue(currentHP, true);
+			const hpBar = this.enemyHPBars[index];
+			if (hpBar && hpBar.scene && hpBar.scene.scene && (hpBar.scene.scene as any).isActive) {
+				hpBar.setValue(currentHP, true);
 			}
 		});
 	}
@@ -1079,6 +1422,8 @@ export class BattleScene extends BaseScene {
 	}
 
 	private startNextTurn() {
+		console.log("Starting new turn...");
+		
 		// Clear all selected actions
 		this.turnOrder.forEach((character) => {
 			character.selectedAction = undefined;
@@ -1088,19 +1433,25 @@ export class BattleScene extends BaseScene {
 			}
 		});
 
+		// Reset resolution state
+		this.isResolvingActions = false;
+		this.resolutionQueue = [];
+		this.executedActions.clear();
+
 		// Recalculate turn order (in case characters died)
 		this.turnOrder = pipe(
 			[...this.playerParty, ...this.enemyParty],
 			filter((char) => char.isAlive),
 			sort((a, b) => b.speed - a.speed),
 		);
-		
+
+		console.log("New turn order:", this.turnOrder.map(c => ({ id: c.id, name: c.name, isPlayer: c.isPlayer })));
+
 		this.turnIndex = 0; // Reset for the new turn
 
 		// Start new turn
 		this.processNextCharacter();
 	}
-
 
 	private calculateMenuHeight(itemCount: number): number {
 		return Math.min(120, itemCount * 25 + 40);
@@ -1113,10 +1464,10 @@ export class BattleScene extends BaseScene {
 		}
 
 		// Update action widgets
-		this.actionWidgets.forEach(widget => {
+		this.actionWidgets.forEach((widget) => {
 			widget.update(time, delta);
 		});
-		
+
 		// Call parent update if it exists
 		super.update?.(time, delta);
 	}
@@ -1127,7 +1478,6 @@ export class BattleScene extends BaseScene {
 		}
 
 		// Clean up debug stuff
-		this.input.keyboard?.off("keydown-D", this.cycleDebugHighlight, this);
 		this.debugGraphics?.destroy();
 		this.activePlayerIndicator?.destroy();
 
@@ -1135,15 +1485,14 @@ export class BattleScene extends BaseScene {
 		this.allyStatusPanel?.destroy();
 		this.allyStatusPanel = null;
 
+		// Clean up battle queue
+		this.battleQueue?.destroy();
+		this.battleQueue = null;
+
 		// Clean up action widgets
 		this.hideActionWidgets();
 
-		// Clean up action indicators
-		this.selectedActionIndicators.forEach((indicator) => {
-			indicator.icon.destroy();
-			indicator.text.destroy();
-		});
-		this.selectedActionIndicators.clear();
+		// Action badges are cleaned up by AllyStatusPanel.destroy()
 
 		// Clean up arrays
 		this.enemyHPBars = [];

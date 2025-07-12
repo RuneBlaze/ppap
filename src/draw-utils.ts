@@ -1,4 +1,4 @@
-import iconUrl from "./assets/icons_full_16.png?url"; // 16 x 16 sprite sheet of icons. Each row has 16 icons.
+// Icon spritesheet is now loaded by BootScene
 import { ColorUtils } from "./color-utils";
 import { type FontKey, fonts, getFontStyle } from "./fonts";
 import { Palette } from "./palette";
@@ -301,7 +301,7 @@ export class DrawUtils {
 
 	/**
 	 * Draws an icon from the icon sheet at the specified position.
-	 * Assumes `preloadAssets` has been called.
+	 * Assumes assets have been loaded in BootScene.
 	 * @param scene - The Phaser scene
 	 * @param x - X position
 	 * @param y - Y position
@@ -393,19 +393,6 @@ export class DrawUtils {
 		});
 
 		return paletteVec3;
-	}
-
-	/**
-	 * Preloads assets required by DrawUtils, such as the icon sheet.
-	 * Call this in your scene's `preload()` method.
-	 */
-	static preloadAssets(scene: Phaser.Scene): void {
-		if (!scene.textures.exists(DrawUtils.ICONS_KEY)) {
-			scene.load.spritesheet(DrawUtils.ICONS_KEY, iconUrl, {
-				frameWidth: DrawUtils.ICON_SIZE,
-				frameHeight: DrawUtils.ICON_SIZE,
-			});
-		}
 	}
 
 	// Register stylized dithering shader with the renderer

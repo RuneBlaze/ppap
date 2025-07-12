@@ -64,3 +64,23 @@ Do not preserve backward compatibility when making API changes unless explicitly
 ### 12. Leverage Modern Utilities
 
 When applicable and offering a readability or efficiency advantage, prefer using `remeda` and `ts-pattern` as utility libraries. Ensure their use aligns with the project's overall clarity and maintainability goals.
+
+---
+
+## Workflow & Ticketing
+
+To maintain a clear, organized, and asynchronous workflow, we use a lightweight ticketing system. All significant changes to the codebase should be managed through this process.
+
+### The Process
+
+1.  **Architect (Gemini):** When a new feature, refactor, or bugfix is requested, Gemini's role is to first understand the request in the context of the existing codebase. This involves reading relevant files, analyzing the current architecture, and identifying potential impacts.
+2.  **Ticket Creation (Gemini):** After analysis, Gemini will create a new ticket in the `/tickets` directory. The ticket should be a markdown file (e.g., `TICKET-003-new-feature.md`) and include:
+    *   A clear, descriptive title.
+    *   The assignee (usually Claude) and reporter (Gemini).
+    *   A **Summary** of the task and its purpose.
+    *   A detailed **Architectural Plan** or **Task List** for implementation.
+    *   **Architectural Justification** explaining *why* this approach is being taken, referencing our principles.
+3.  **Execution (Claude):** Claude's role is to execute the plan outlined in the ticket. Claude should follow the instructions precisely, adhering to the project's coding standards and architectural principles.
+4.  **Verification (Claude/Gemini):** After implementation, the changes should be verified. This may involve running builds (`pnpm build`), tests, or simply confirming the application runs as expected. Both assistants are responsible for ensuring the final result is correct.
+
+This process ensures that every change is well-planned, architecturally sound, and documented for future reference.

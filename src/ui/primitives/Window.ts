@@ -24,7 +24,9 @@ export class Window extends Phaser.GameObjects.Graphics {
 		this.x = options.x;
 		this.y = options.y;
 
-		DrawUtils.drawWindowSkin(this, this.options);
+		if (!options.transparent) {
+			DrawUtils.drawWindowSkin(this, this.options);
+		}
 
 		scene.add.existing(this);
 
@@ -63,9 +65,9 @@ export class Window extends Phaser.GameObjects.Graphics {
 		if (this.transitionTween?.isPlaying()) {
 			this.transitionTween.stop();
 		}
-		
+
 		this.setVisible(true);
-		
+
 		const duration = transition.duration || 300;
 		this.transitionTween = this.scene.tweens.add({
 			targets: this,

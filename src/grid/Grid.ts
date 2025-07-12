@@ -1,87 +1,89 @@
-
 export interface Region {
-  id: string;
-  cells: Set<string>; // "x,y" format
-  bounds: { minX: number, maxX: number, minY: number, maxY: number };
+	id: string;
+	cells: Set<string>; // "x,y" format
+	bounds: { minX: number; maxX: number; minY: number; maxY: number };
 }
 
 export class Grid {
-  private activeCells: Set<string> = new Set();
-  private regions: Region[] = [];
+	private activeCells: Set<string> = new Set();
+	private regions: Region[] = [];
 
-  constructor(private gridSize: number) {}
+	constructor(private gridSize: number) {}
 
-  public addCell(x: number, y: number): void {
-    this.activeCells.add(`${x},${y}`);
-  }
+	public addCell(x: number, y: number): void {
+		this.activeCells.add(`${x},${y}`);
+	}
 
-  public removeCell(x: number, y: number): void {
-    this.activeCells.delete(`${x},${y}`);
-  }
-  
-  public getGridSize(): number {
-    return this.gridSize;
-  }
+	public removeCell(x: number, y: number): void {
+		this.activeCells.delete(`${x},${y}`);
+	}
 
-  public getActiveCells(): ReadonlySet<string> {
-    return this.activeCells;
-  }
+	public getGridSize(): number {
+		return this.gridSize;
+	}
 
-  public getRegions(): readonly Region[] {
-    return this.regions;
-  }
+	public getActiveCells(): ReadonlySet<string> {
+		return this.activeCells;
+	}
 
-  public updateRegions(): void {
-    this.regions = [];
-    const visited = new Set<string>();
+	public getRegions(): readonly Region[] {
+		return this.regions;
+	}
 
-    for (const cellKey of this.activeCells) {
-      if (visited.has(cellKey)) continue;
+	public updateRegions(): void {
+		this.regions = [];
+		const visited = new Set<string>();
 
-      const region = this.floodFillRegion(cellKey, visited);
-      if (region.cells.size > 0) {
-        this.regions.push(region);
-      }
-    }
-  }
+		for (const cellKey of this.activeCells) {
+			if (visited.has(cellKey)) continue;
 
-  private floodFillRegion(startCell: string, visited: Set<string>): Region {
-    const [startX, startY] = startCell.split(',').map(Number);
-    const cells = new Set<string>();
-    const stack = [startCell];
-    let minX = startX, maxX = startX, minY = startY, maxY = startY;
+			const region = this.floodFillRegion(cellKey, visited);
+			if (region.cells.size > 0) {
+				this.regions.push(region);
+			}
+		}
+	}
 
-    while (stack.length > 0) {
-      const current = stack.pop()!;
-      if (visited.has(current)) continue;
+	private floodFillRegion(startCell: string, visited: Set<string>): Region {
+		const [startX, startY] = startCell.split(",").map(Number);
+		const cells = new Set<string>();
+		const stack = [startCell];
+		let minX = startX,
+			maxX = startX,
+			minY = startY,
+			maxY = startY;
 
-      visited.add(current);
-      cells.add(current);
+		while (stack.length > 0) {
+			const current = stack.pop()!;
+			if (visited.has(current)) continue;
 
-      const [x, y] = current.split(',').map(Number);
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-      minY = Math.min(minY, y);
-      maxY = Math.max(maxY, y);
+			visited.add(current);
+			cells.add(current);
 
-      const neighbors = [
-        `${x - this.gridSize},${y}`,
-        `${x + this.gridSize},${y}`,
-        `${x},${y - this.gridSize}`,
-        `${x},${y + this.gridSize}`
-      ];
+			const [x, y] = current.split(",").map(Number);
+			minX = Math.min(minX, x);
+			maxX = Math.max(maxX, x);
+			minY = Math.min(minY, y);
+			maxY = Math.max(maxY, y);
 
-      for (const neighbor of neighbors) {
-        if (this.activeCells.has(neighbor) && !visited.has(neighbor)) {
-          stack.push(neighbor);
-        }
-      }
-    }
+			const neighbors = [
+				`${x - this.gridSize},${y}`,
+				`${x + this.gridSize},${y}`,
+				`${x},${y - this.gridSize}`,
+				`${x},${y + this.gridSize}`,
+			];
 
-    return {
-      id: `region_${minX}_${minY}`,
-      cells,
-      bounds: { minX, maxX, minY, maxY }
-    };
-  }
+			for (const neighbor of neighbors) {
+				if (this.activeCells.has(neighbor) && !visited.has(neighbor)) {
+					stack.push(neighbor);
+				}
+			}
+		}
+
+		return {
+			id: `region_${minX}_${minY}`,
+			cells,
+			bounds: { minX, maxX, minY, maxY },
+		};
+	}
 }

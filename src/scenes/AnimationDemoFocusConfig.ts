@@ -1,17 +1,21 @@
-import { type FSMConfig, type FsmState, type FsmEvent } from "../ui/state/GenericFocusStateMachine";
+import type {
+	FSMConfig,
+	FsmEvent,
+	FsmState,
+} from "../ui/state/GenericFocusStateMachine";
 
 // 1. Define States
 export type AnimationDemoFocusState =
-	| FsmState & { id: "idle" }
-	| FsmState & { id: "animationMenu" }
-	| FsmState & { id: "popupMenu" };
+	| (FsmState & { id: "idle" })
+	| (FsmState & { id: "animationMenu" })
+	| (FsmState & { id: "popupMenu" });
 
 // 2. Define Events
 export type AnimationDemoFocusEvent =
-	| FsmEvent & { type: "toggleAnimationMenu" }
-	| FsmEvent & { type: "togglePopupMenu" }
-	| FsmEvent & { type: "selectItem" } // Generic event for closing menu on selection
-	| FsmEvent & { type: "close" };
+	| (FsmEvent & { type: "toggleAnimationMenu" })
+	| (FsmEvent & { type: "togglePopupMenu" })
+	| (FsmEvent & { type: "selectItem" }) // Generic event for closing menu on selection
+	| (FsmEvent & { type: "close" });
 
 // 3. Define the FSM configuration
 export const animationDemoFocusConfig: FSMConfig<
@@ -68,4 +72,4 @@ export const animationDemoFocusConfig: FSMConfig<
 			to: () => ({ id: "idle" }),
 		},
 	],
-}; 
+};

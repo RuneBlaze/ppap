@@ -2,17 +2,16 @@ import { DrawUtils } from "../draw-utils";
 import { Palette } from "../palette";
 import { List, type ListItem } from "../ui/components/List";
 import { Menu, type MenuItem } from "../ui/components/Menu";
+import { TextBlock } from "../ui/primitives/TextBlock";
 import { Window } from "../ui/primitives/Window";
 import {
 	FocusableGrid,
 	FocusableList,
 	FocusableMenu,
 } from "../ui/state/FocusableWrappers";
-import { type FocusToken } from "../ui/state/FocusManager";
+import type { FocusToken } from "../ui/state/FocusManager";
 import { GridNavigationController } from "../ui/state/GridNavigationController";
-import { BaseScene, InputMode } from "./BaseScene";
-
-import { TextBlock } from "../ui/primitives/TextBlock";
+import { BaseScene } from "./BaseScene";
 
 export class ShopScene extends BaseScene {
 	private mainMenu: Menu | null = null;
@@ -50,7 +49,6 @@ export class ShopScene extends BaseScene {
 	protected preloadSceneAssets() {}
 
 	protected createScene() {
-		this.inputMode = InputMode.UI;
 		// Initialize the focus management system
 		this.initializeFocusManager();
 
@@ -85,10 +83,7 @@ export class ShopScene extends BaseScene {
 			},
 		};
 
-		this.focusManager.register(
-			"shopMenuButton",
-			focusableButton,
-		);
+		this.focusManager.register("shopMenuButton", focusableButton);
 	}
 
 	private initializeFocusManager() {
@@ -257,10 +252,7 @@ export class ShopScene extends BaseScene {
 
 		// Register with focus manager (NO direct activation or highlighting)
 		this.focusableGrid = new FocusableGrid(this.gridNavigation);
-		this.focusManager.register(
-			"gridNavigation",
-			this.focusableGrid,
-		);
+		this.focusManager.register("gridNavigation", this.focusableGrid);
 	}
 
 	private createGradientDemo() {

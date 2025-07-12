@@ -75,7 +75,9 @@ export class Button extends Phaser.GameObjects.Container {
 	};
 
 	private updateVisualState() {
-		const fillColor = this.isHovered ? Palette.PURPLE.hex : Palette.DARK_PURPLE.hex;
+		const fillColor = this.isHovered
+			? Palette.PURPLE.hex
+			: Palette.DARK_PURPLE.hex;
 		this.background.redraw({ fillColor });
 	}
 

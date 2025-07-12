@@ -19,10 +19,16 @@ pnpm build
 
 # Preview production build
 pnpm preview
+
+# Code formatting and linting (use these to fix basic code issues)
+pnpm format  # Format code with Biome
+pnpm lint    # Lint and auto-fix issues with Biome
+pnpm check   # Format + lint + auto-fix in one command
 ```
 
 ALWAYS use src/palette.ts for colors. Anything outside the palette is strongly discouraged.
 ALWAYS run `pnpm build` after several large changes (or at the conclusion) to double check no type errors exist.
+ALWAYS run `pnpm check` to automatically fix basic code issues (unused imports, formatting, etc.) before committing changes.
 
 ## Architecture
 
@@ -126,6 +132,7 @@ ALWAYS run `pnpm build` after several large changes (or at the conclusion) to do
 - The game runs at 427x240 resolution with automatic scaling
 - Shader uniforms are updated in real-time for smooth 3D effects
 - Text rendering includes advanced compression logic for fitting text on small cards
+- **Pixel Perfect Rule**: Avoid scaling sprites/images when pixel perfectness is important. Use alpha/position animations instead of scale animations for UI elements to maintain crisp pixel art
 
 ## General Coding Guidelines (Reminders)
 
@@ -151,3 +158,23 @@ import { palette } from "@/palette";
 ```
 
 The "@" alias maps to the `src/` directory and is configured in both `tsconfig.json` and `vite.config.ts`. Use absolute imports for cleaner, more maintainable code.
+
+---
+
+## Workflow & Ticketing
+
+To maintain a clear, organized, and asynchronous workflow, we use a lightweight ticketing system. All significant changes to the codebase should be managed through this process.
+
+### The Process
+
+1.  **Architect (Gemini):** When a new feature, refactor, or bugfix is requested, Gemini's role is to first understand the request in the context of the existing codebase. This involves reading relevant files, analyzing the current architecture, and identifying potential impacts.
+2.  **Ticket Creation (Gemini):** After analysis, Gemini will create a new ticket in the `/tickets` directory. The ticket should be a markdown file (e.g., `TICKET-003-new-feature.md`) and include:
+    *   A clear, descriptive title.
+    *   The assignee (usually Claude) and reporter (Gemini).
+    *   A **Summary** of the task and its purpose.
+    *   A detailed **Architectural Plan** or **Task List** for implementation.
+    *   **Architectural Justification** explaining *why* this approach is being taken, referencing our principles.
+3.  **Execution (Claude):** Your role is to execute the plan outlined in the ticket. Follow the instructions precisely, adhering to the project's coding standards and architectural principles.
+4.  **Verification (Claude/Gemini):** After implementation, the changes should be verified. This may involve running builds (`pnpm build`), tests, or simply confirming the application runs as expected. Both assistants are responsible for ensuring the final result is correct.
+
+This process ensures that every change is well-planned, architecturally sound, and documented for future reference.

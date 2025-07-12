@@ -15,6 +15,7 @@ export interface MenuOptions {
 	width: number;
 	items: MenuItem[];
 	onCancel?: () => void;
+	transparent?: boolean;
 }
 
 const PADDING = 4;
@@ -45,6 +46,7 @@ export class Menu extends Container {
 			y: 0,
 			width: options.width,
 			height: menuHeight,
+			transparent: options.transparent,
 		});
 		this.add(this.window);
 
@@ -63,7 +65,7 @@ export class Menu extends Container {
 
 		// Set initial highlight only if items exist
 		if (this.options.items.length > 0) {
-			this.handleSelectionChange(0); 
+			this.handleSelectionChange(0);
 		}
 	}
 
@@ -73,7 +75,7 @@ export class Menu extends Container {
 
 	setItems(items: MenuItem[]) {
 		// Clear existing items
-		this.textBlocks.forEach(tb => tb.destroy());
+		this.textBlocks.forEach((tb) => tb.destroy());
 		this.textBlocks = [];
 		this.options.items = items;
 

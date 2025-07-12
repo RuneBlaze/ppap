@@ -1,9 +1,9 @@
 import Phaser from "phaser";
-import { getFontStyle } from "../../fonts";
 import { DrawUtils } from "../../draw-utils";
+import { getFontStyle } from "../../fonts";
 
 // PopupInner type definition
-export type PopupInner = 
+export type PopupInner =
 	| { type: "HpChange"; delta: number; isCritical: boolean }
 	| { type: "MpChange"; delta: number; isCritical: boolean }
 	| { type: "StatusChange"; addOrRemove: 0 | 1; iconIndex: number }
@@ -18,12 +18,7 @@ export class Popup extends Phaser.GameObjects.Text {
 	private readonly xVelocity: number;
 	private icon?: Phaser.GameObjects.Image;
 
-	constructor(
-		scene: Phaser.Scene,
-		x: number,
-		y: number,
-		inner: PopupInner,
-	) {
+	constructor(scene: Phaser.Scene, x: number, y: number, inner: PopupInner) {
 		const { text, style, isCritical, iconIndex } = Popup.processInner(inner);
 
 		super(scene, x, y, text, style);
@@ -61,7 +56,8 @@ export class Popup extends Phaser.GameObjects.Text {
 				ease: "Sine.easeInOut",
 			});
 
-			const flashColor = inner.type === "HpChange" && inner.delta >= 0 ? 0xeeffee : 0xffffee;
+			const flashColor =
+				inner.type === "HpChange" && inner.delta >= 0 ? 0xeeffee : 0xffffee;
 			this.scene.tweens.add({
 				targets: this,
 				tint: flashColor,
@@ -89,7 +85,9 @@ export class Popup extends Phaser.GameObjects.Text {
 		if (this.icon) {
 			this.icon.y = this.y;
 			// Position icon to the left of the text, adjusting for text width
-			this.icon.x = Math.round(this.x - (this.width * this.scaleX) / 2 - (this.icon.width / 2));
+			this.icon.x = Math.round(
+				this.x - (this.width * this.scaleX) / 2 - this.icon.width / 2,
+			);
 		}
 
 		if (this.lifetime < this.initialLifetime / 2) {
@@ -113,51 +111,53 @@ export class Popup extends Phaser.GameObjects.Text {
 		super.destroy(fromScene);
 	}
 
-	static processInner(inner: PopupInner): { 
-		text: string; 
-		style: Phaser.Types.GameObjects.Text.TextStyle; 
-		isCritical: boolean; 
-		iconIndex?: number; 
+	static processInner(inner: PopupInner): {
+		text: string;
+		style: Phaser.Types.GameObjects.Text.TextStyle;
+		isCritical: boolean;
+		iconIndex?: number;
 	} {
 		let text: string;
 		let color: string;
 		let isCritical: boolean;
 		let iconIndex: number | undefined;
-		
+
 		switch (inner.type) {
-			case "HpChange":
+			case "HpChange": {
 				const isHealing = inner.delta >= 0;
 				text = `${isHealing ? "" : ""}${Math.abs(inner.delta)}`;
 				color = isHealing ? "#90ee90" : "#ff6347"; // LightGreen for heal, Tomato for damage
 				isCritical = inner.isCritical;
 				break;
-				
-			case "MpChange":
+			}
+
+			case "MpChange": {
 				const isMpGain = inner.delta >= 0;
 				text = `${isMpGain ? "" : ""}${Math.abs(inner.delta)}`;
 				color = isMpGain ? "#87ceeb" : "#4169e1"; // SkyBlue for gain, RoyalBlue for loss
 				isCritical = inner.isCritical;
 				break;
-				
+			}
+
 			case "StatusChange":
 				text = inner.addOrRemove === 1 ? "+" : "-";
 				color = inner.addOrRemove === 1 ? "#90ee90" : "#ff6347";
 				isCritical = false;
 				iconIndex = inner.iconIndex;
 				break;
-				
+
 			case "Generic":
 				text = inner.text;
 				color = "#ffffff";
 				isCritical = false;
 				break;
 		}
-		
+
 		const style = getFontStyle("capitalHill", isCritical ? 14 : 9);
 		style.stroke = "#000000";
 		style.strokeThickness = 4;
 		style.color = color;
-		
+
 		return { text, style, isCritical, iconIndex };
 	}
-} 
+}

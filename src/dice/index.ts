@@ -1,9 +1,9 @@
+import { tool } from "ai";
+import { z } from "zod";
 import type { EvaluationResult } from "./interpreter";
 import { Interpreter } from "./interpreter";
 import { Lexer } from "./lexer";
-import { Parser, type ParseError } from "./parser";
-import { tool } from "ai";
-import { z } from "zod";
+import { type ParseError, Parser } from "./parser";
 
 export interface EvaluationError {
 	type: "evaluation";

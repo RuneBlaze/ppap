@@ -136,6 +136,7 @@ ALWAYS run `pnpm check` to automatically fix basic code issues (unused imports, 
 - Shader uniforms are updated in real-time for smooth 3D effects
 - Text rendering includes advanced compression logic for fitting text on small cards
 - **Pixel Perfect Rule**: Avoid scaling sprites/images when pixel perfectness is important. Use alpha/position animations instead of scale animations for UI elements to maintain crisp pixel art
+- NEVER deprecate things. Just remove things. We aren't doing public APIs.
 
 ## General Coding Guidelines (Reminders)
 

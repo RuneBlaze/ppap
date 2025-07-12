@@ -17,7 +17,7 @@ import {
 	type BattleFocusState,
 	battleFocusConfig,
 } from "./BattleFocusConfig";
-import { BattleResolver, type ResolutionStep } from "./BattleResolver";
+import { type BattleOutcome, BattleResolver } from "./BattleResolver";
 
 export enum ActionType {
 	ATTACK = "attack",
@@ -842,27 +842,224 @@ export class BattleScene extends BaseScene {
 
 		this.battleQueue?.setQueue(queueEntries);
 
-		// Use the async iterator to process each action step
-		for await (const step of resolver) {
-			// Reveal enemy action in the queue UI
-			if (!step.source.isPlayer) {
-				const actionName = this.getActionDisplayName(step.action);
-				const iconFrame = this.getActionIconFrame(step.action);
-				this.battleQueue?.revealEnemyAction(
-					step.source.id,
-					actionName,
-					iconFrame,
-				);
+		// Use the new outcome-based resolution system
+
+		for await (const outcome of resolver.resolveActionsAsOutcomes()) {
+			// Handle each outcome event with dedicated handlers
+			await this.handleBattleOutcome(outcome);
+
+			// Track when we start a new action for queue management
+			if (outcome.type === "action_start") {
+				// Reveal enemy action in the queue UI
+				const character = this.findCharacterById(outcome.sourceId);
+				if (character && !character.isPlayer) {
+					const actionName = this.getActionDisplayName(
+						character.selectedAction!,
+					);
+					const iconFrame = this.getActionIconFrame(character.selectedAction!);
+					this.battleQueue?.revealEnemyAction(
+						character.id,
+						actionName,
+						iconFrame,
+					);
+				}
 			}
 
-			// Play animations and visual feedback for the action
-			await this.playActionAnimation(step);
-
-			// Advance the UI queue to the next character
-			this.battleQueue?.nextEntry();
+			// Advance the UI queue when an action completes
+			if (outcome.type === "action_complete") {
+				this.battleQueue?.nextEntry();
+			}
 		}
 
 		this.finishResolution();
+	}
+
+	/**
+	 * Central handler that delegates outcome events to specific handler methods
+	 */
+	private async handleBattleOutcome(outcome: BattleOutcome): Promise<void> {
+		switch (outcome.type) {
+			case "action_start":
+				return this.onActionStart(outcome);
+			case "damage":
+				return this.onDamage(outcome);
+			case "heal":
+				return this.onHeal(outcome);
+			case "mp_cost":
+				return this.onMpCost(outcome);
+			case "status_change":
+				return this.onStatusChange(outcome);
+			case "action_complete":
+				return this.onActionComplete(outcome);
+			default:
+				console.warn("Unhandled battle outcome type:", outcome);
+		}
+	}
+
+	/**
+	 * Handler for when an action starts
+	 */
+	private async onActionStart(outcome: {
+		type: "action_start";
+		sourceId: string;
+		actionType: ActionType;
+	}): Promise<void> {
+		const character = this.findCharacterById(outcome.sourceId);
+		if (!character) return;
+
+		console.log(`${character.name} starts ${outcome.actionType}`);
+
+		// Flash the character performing the action
+		if (character.isPlayer) {
+			const characterBounds = this.allyStatusPanel?.getCharacterSectionBounds(
+				character.id,
+			);
+			if (characterBounds) {
+				const flash = this.add.graphics();
+				flash.fillStyle(Palette.WHITE.num, 0.5);
+				flash.fillRectShape(characterBounds);
+				flash.setDepth(150);
+				this.tweens.add({
+					targets: flash,
+					alpha: { from: 0.5, to: 0 },
+					duration: 300,
+					onComplete: () => flash.destroy(),
+				});
+			}
+		} else {
+			const enemyIndex = this.enemyParty.findIndex(
+				(e) => e.id === character.id,
+			);
+			if (enemyIndex !== -1 && this.enemySprites[enemyIndex]) {
+				this.enemySprites[enemyIndex].flash();
+			}
+		}
+
+		// Small delay for action start feedback
+		return new Promise((resolve) => this.time.delayedCall(200, resolve));
+	}
+
+	/**
+	 * Handler for damage events
+	 */
+	private async onDamage(outcome: {
+		type: "damage";
+		targetId: string;
+		amount: number;
+		isCrit: boolean;
+	}): Promise<void> {
+		const target = this.findCharacterById(outcome.targetId);
+		if (!target) return;
+
+		console.log(
+			`${target.name} takes ${outcome.amount} damage${outcome.isCrit ? " (CRITICAL!)" : ""}!`,
+		);
+
+		// Update displays
+		this.updatePlayerDisplay();
+		this.updateEnemyDisplay();
+
+		// TODO: Add floating damage number popup here
+		// TODO: Add screen shake on crits
+		if (outcome.isCrit) {
+			this.cameras.main.shake(150, 0.005);
+		}
+
+		return new Promise((resolve) => this.time.delayedCall(300, resolve));
+	}
+
+	/**
+	 * Handler for healing events
+	 */
+	private async onHeal(outcome: {
+		type: "heal";
+		targetId: string;
+		amount: number;
+	}): Promise<void> {
+		const target = this.findCharacterById(outcome.targetId);
+		if (!target) return;
+
+		console.log(`${target.name} recovers ${outcome.amount} HP!`);
+
+		// Update displays
+		this.updatePlayerDisplay();
+		this.updateEnemyDisplay();
+
+		// TODO: Add floating healing number popup here
+		// TODO: Add green flash effect
+
+		return new Promise((resolve) => this.time.delayedCall(300, resolve));
+	}
+
+	/**
+	 * Handler for MP cost events
+	 */
+	private async onMpCost(outcome: {
+		type: "mp_cost";
+		sourceId: string;
+		amount: number;
+	}): Promise<void> {
+		const source = this.findCharacterById(outcome.sourceId);
+		if (!source) return;
+
+		console.log(`${source.name} uses ${outcome.amount} MP`);
+
+		// Update displays to show MP changes
+		this.updatePlayerDisplay();
+
+		// TODO: Add blue flash or MP drain effect
+
+		return new Promise((resolve) => this.time.delayedCall(150, resolve));
+	}
+
+	/**
+	 * Handler for status change events
+	 */
+	private async onStatusChange(outcome: {
+		type: "status_change";
+		targetId: string;
+		status: "death" | "defend";
+	}): Promise<void> {
+		const target = this.findCharacterById(outcome.targetId);
+		if (!target) return;
+
+		switch (outcome.status) {
+			case "death":
+				console.log(`${target.name} has been defeated!`);
+				// TODO: Add death animation/effect
+				break;
+			case "defend":
+				console.log(`${target.name} takes a defensive stance!`);
+				// TODO: Add defend visual effect
+				break;
+		}
+
+		return new Promise((resolve) => this.time.delayedCall(400, resolve));
+	}
+
+	/**
+	 * Handler for when an action completes
+	 */
+	private async onActionComplete(outcome: {
+		type: "action_complete";
+		sourceId: string;
+	}): Promise<void> {
+		const source = this.findCharacterById(outcome.sourceId);
+		if (source) {
+			console.log(`${source.name} completes their action`);
+		}
+
+		// Small delay before next action
+		return new Promise((resolve) => this.time.delayedCall(100, resolve));
+	}
+
+	/**
+	 * Helper method to find character by ID across both parties
+	 */
+	private findCharacterById(id: string): BattleCharacter | undefined {
+		return [...this.playerParty, ...this.enemyParty].find(
+			(char) => char.id === id,
+		);
 	}
 
 	private finishResolution() {
@@ -881,55 +1078,6 @@ export class BattleScene extends BaseScene {
 
 			// Start next turn
 			this.startNextTurn();
-		});
-	}
-
-	private async playActionAnimation(step: ResolutionStep): Promise<void> {
-		return new Promise((resolve) => {
-			const { source, target, damage, healing } = step;
-
-			// Flash the character performing the action
-			if (source.isPlayer) {
-				const characterBounds = this.allyStatusPanel?.getCharacterSectionBounds(
-					source.id,
-				);
-				if (characterBounds) {
-					const flash = this.add.graphics();
-					flash.fillStyle(Palette.WHITE.num, 0.5);
-					flash.fillRectShape(characterBounds);
-					flash.setDepth(150);
-					this.tweens.add({
-						targets: flash,
-						alpha: { from: 0.5, to: 0 },
-						duration: 300,
-						onComplete: () => flash.destroy(),
-					});
-				}
-			} else {
-				const enemyIndex = this.enemyParty.findIndex((e) => e.id === source.id);
-				if (enemyIndex !== -1 && this.enemySprites[enemyIndex]) {
-					this.enemySprites[enemyIndex].flash();
-				}
-			}
-
-			// Update displays with new data from the resolver
-			this.updatePlayerDisplay();
-			this.updateEnemyDisplay();
-
-			// TODO: Add a proper floating number effect for damage/healing
-			if (damage) {
-				console.log(
-					`${source.name} attacks ${target?.name} for ${damage} damage!`,
-				);
-			}
-			if (healing) {
-				console.log(
-					`${source.name} heals ${target?.name} for ${healing} healing!`,
-				);
-			}
-
-			// Resolve after animation delay
-			this.time.delayedCall(800, resolve);
 		});
 	}
 

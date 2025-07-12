@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 
-import { evaluate, type DiceError } from "../src/dice";
-import { Lexer } from "../src/dice/lexer";
-import { TokenType, type Token } from "../src/dice/tokens";
 import * as readline from "node:readline";
+import { type DiceError, evaluate } from "../src/dice";
+import { Lexer } from "../src/dice/lexer";
+import { type Token, TokenType } from "../src/dice/tokens";
 
 // ANSI color codes for pretty output
 const colors = {

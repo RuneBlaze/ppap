@@ -1,5 +1,4 @@
 import { pipe, sort } from "remeda";
-import { match } from "ts-pattern";
 import {
 	ActionType,
 	type BattleAction,
@@ -8,16 +7,76 @@ import {
 } from "./BattleScene";
 
 /**
- * Represents the outcome of a single action resolution.
- * The scene uses this data to play animations and update the UI.
+ * Base interface for all battle outcome events
  */
-export interface ResolutionStep {
-	source: BattleCharacter;
-	action: BattleAction;
-	target?: BattleCharacter;
-	damage?: number;
-	healing?: number;
+export interface BaseBattleOutcome {
+	type: string;
 }
+
+/**
+ * Event when an action starts executing
+ */
+export interface ActionStartOutcome extends BaseBattleOutcome {
+	type: "action_start";
+	sourceId: string;
+	actionType: ActionType;
+}
+
+/**
+ * Event when damage is dealt to a character
+ */
+export interface DamageOutcome extends BaseBattleOutcome {
+	type: "damage";
+	targetId: string;
+	amount: number;
+	isCrit: boolean;
+}
+
+/**
+ * Event when healing is applied to a character
+ */
+export interface HealOutcome extends BaseBattleOutcome {
+	type: "heal";
+	targetId: string;
+	amount: number;
+}
+
+/**
+ * Event when MP is consumed for a skill
+ */
+export interface MpCostOutcome extends BaseBattleOutcome {
+	type: "mp_cost";
+	sourceId: string;
+	amount: number;
+}
+
+/**
+ * Event when a character's status changes (death, etc.)
+ */
+export interface StatusChangeOutcome extends BaseBattleOutcome {
+	type: "status_change";
+	targetId: string;
+	status: "death" | "defend";
+}
+
+/**
+ * Event when an action completes
+ */
+export interface ActionCompleteOutcome extends BaseBattleOutcome {
+	type: "action_complete";
+	sourceId: string;
+}
+
+/**
+ * Union type of all possible battle outcomes
+ */
+export type BattleOutcome =
+	| ActionStartOutcome
+	| DamageOutcome
+	| HealOutcome
+	| MpCostOutcome
+	| StatusChangeOutcome
+	| ActionCompleteOutcome;
 
 export class BattleResolver {
 	public readonly resolutionQueue: readonly BattleCharacter[];
@@ -43,10 +102,10 @@ export class BattleResolver {
 	}
 
 	/**
-	 * Async generator that yields the result of each action resolution.
-	 * The `for await...of` loop in the scene will handle the delay between steps.
+	 * New async generator that yields specific outcome events for each action resolution.
+	 * This replaces the monolithic ResolutionStep with granular events.
 	 */
-	public async *[Symbol.asyncIterator](): AsyncGenerator<ResolutionStep> {
+	public async *resolveActionsAsOutcomes(): AsyncGenerator<BattleOutcome> {
 		for (const character of this.resolutionQueue) {
 			// Skip this character if they were defeated by a faster character this turn
 			if (!character.isAlive) {
@@ -56,57 +115,123 @@ export class BattleResolver {
 			// This check is technically redundant due to constructor filtering, but safe.
 			if (!character.selectedAction) continue;
 
-			const step = this.executeAction(character, character.selectedAction);
-
-			yield step;
+			// Yield all outcomes for this character's action
+			yield* this.executeActionAsOutcomes(character, character.selectedAction);
 		}
 	}
 
-	private executeAction(
+	/**
+	 * New method that executes an action and yields granular outcome events
+	 */
+	private *executeActionAsOutcomes(
 		character: BattleCharacter,
 		action: BattleAction,
-	): ResolutionStep {
+	): Generator<BattleOutcome> {
 		console.log(
 			`[RESOLVER] ${character.name} (${character.id}) performs ${action.type}`,
 		);
 
-		const target = this.findCharacterById(action.targetId);
-		const step: ResolutionStep = { source: character, action, target };
+		// Start of action
+		yield {
+			type: "action_start",
+			sourceId: character.id,
+			actionType: action.type,
+		};
 
-		match(action.type)
-			.with(ActionType.ATTACK, () => {
-				const damage = Math.floor(Math.random() * 30) + 10;
-				if (target) {
-					this.applyDamage(target, damage);
-					step.damage = damage;
+		const target = this.findCharacterById(action.targetId);
+
+		// Handle different action types with explicit if-else to support yield
+		if (action.type === ActionType.ATTACK) {
+			const damage = Math.floor(Math.random() * 30) + 10;
+			const isCrit = Math.random() < 0.1; // 10% crit chance
+
+			if (target) {
+				const wasAlive = target.isAlive;
+				this.applyDamage(target, damage);
+
+				// Emit damage event
+				yield {
+					type: "damage",
+					targetId: target.id,
+					amount: damage,
+					isCrit,
+				};
+
+				// Check if target died
+				if (wasAlive && !target.isAlive) {
+					yield {
+						type: "status_change",
+						targetId: target.id,
+						status: "death",
+					};
 				}
-			})
-			.with(ActionType.DEFEND, () => {
-				// Defend logic can be added here. For now, it's a no-op.
-				console.log(`${character.name} defends!`);
-			})
-			.with(ActionType.SKILL, () => {
-				const skill = this.availableSkills.find((s) => s.id === action.skillId);
-				if (!skill) return;
+			}
+		} else if (action.type === ActionType.DEFEND) {
+			console.log(`${character.name} defends!`);
+
+			// Emit defend status
+			yield {
+				type: "status_change",
+				targetId: character.id,
+				status: "defend",
+			};
+		} else if (action.type === ActionType.SKILL) {
+			const skill = this.availableSkills.find((s) => s.id === action.skillId);
+			if (skill) {
+				// Emit MP cost event
+				if (skill.mpCost > 0) {
+					yield {
+						type: "mp_cost",
+						sourceId: character.id,
+						amount: skill.mpCost,
+					};
+				}
 
 				character.currentMP = Math.max(0, character.currentMP - skill.mpCost);
 
 				if (target) {
 					if (skill.damage) {
+						const wasAlive = target.isAlive;
 						this.applyDamage(target, skill.damage);
-						step.damage = skill.damage;
+
+						// Emit damage event
+						yield {
+							type: "damage",
+							targetId: target.id,
+							amount: skill.damage,
+							isCrit: false, // Skills don't crit for now
+						};
+
+						// Check if target died
+						if (wasAlive && !target.isAlive) {
+							yield {
+								type: "status_change",
+								targetId: target.id,
+								status: "death",
+							};
+						}
 					} else if (skill.healing) {
 						this.applyHealing(target, skill.healing);
-						step.healing = skill.healing;
+
+						// Emit healing event
+						yield {
+							type: "heal",
+							targetId: target.id,
+							amount: skill.healing,
+						};
 					}
 				}
-			})
-			.with(ActionType.ITEM, () => {
-				console.log(`${character.name} uses an item!`);
-			})
-			.exhaustive();
+			}
+		} else if (action.type === ActionType.ITEM) {
+			console.log(`${character.name} uses an item!`);
+			// Items could have their own outcome events in the future
+		}
 
-		return step;
+		// End of action
+		yield {
+			type: "action_complete",
+			sourceId: character.id,
+		};
 	}
 
 	private findCharacterById(id?: string): BattleCharacter | undefined {

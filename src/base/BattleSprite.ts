@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { Popup } from "../ui/primitives/Popup";
 import type { IlluminationTarget } from "./ps";
+import { Palette } from "../palette";
 
 export class BattleSprite
 	extends Phaser.GameObjects.Sprite
@@ -64,6 +65,24 @@ export class BattleSprite
 			this.y - this.height / 2, // appear above the sprite
 			{ type: "HpChange", delta, isCritical },
 		);
+	}
+
+	public flash() {
+		// Prevent crash if scene is gone (e.g., during scene transition)
+		if (!this.scene) {
+			return;
+		}
+
+		this.setTint(Palette.WHITE.num);
+		this.scene.tweens.add({
+			targets: this,
+			alpha: { from: 0.5, to: 1 },
+			duration: 150,
+			yoyo: true,
+			onComplete: () => {
+				this.clearTint();
+			},
+		});
 	}
 
 	// HD-2D animation support

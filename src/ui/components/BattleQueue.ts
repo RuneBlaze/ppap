@@ -42,7 +42,7 @@ export class BattleQueue {
 
 	create(): void {
 		const height = this.options.maxVisible * 32 + 16; // 32px per entry + padding
-		
+
 		this.window = new Window(this.scene, {
 			x: this.options.x,
 			y: this.options.y,
@@ -65,8 +65,14 @@ export class BattleQueue {
 		}
 	}
 
-	revealEnemyAction(characterId: string, actionName: string, iconFrame: number): void {
-		const entry = this.queue.find(e => e.characterId === characterId && !e.isPlayer);
+	revealEnemyAction(
+		characterId: string,
+		actionName: string,
+		iconFrame: number,
+	): void {
+		const entry = this.queue.find(
+			(e) => e.characterId === characterId && !e.isPlayer,
+		);
 		if (entry) {
 			entry.actionName = actionName;
 			entry.actionIconFrame = iconFrame;
@@ -81,7 +87,10 @@ export class BattleQueue {
 
 		// Show entries starting from current index
 		const startIndex = this.currentIndex;
-		const endIndex = Math.min(startIndex + this.options.maxVisible, this.queue.length);
+		const endIndex = Math.min(
+			startIndex + this.options.maxVisible,
+			this.queue.length,
+		);
 
 		for (let i = startIndex; i < endIndex; i++) {
 			const entry = this.queue[i];
@@ -90,7 +99,11 @@ export class BattleQueue {
 		}
 	}
 
-	private createEntryElement(entry: QueueEntry, displayIndex: number, isActive: boolean): void {
+	private createEntryElement(
+		entry: QueueEntry,
+		displayIndex: number,
+		isActive: boolean,
+	): void {
 		const entryY = this.options.y + 8 + displayIndex * 32;
 		const entryX = this.options.x + 8;
 
@@ -208,7 +221,7 @@ export class BattleQueue {
 	}
 
 	private clearEntryElements(): void {
-		this.entryElements.forEach(element => {
+		this.entryElements.forEach((element) => {
 			this.scene.tweens.killTweensOf(element.container);
 			element.container.destroy();
 		});

@@ -36,11 +36,14 @@ export class AllyStatusPanel {
 	private levelTexts: TextBlock[] = [];
 	private hpLabels: TextBlock[] = [];
 	private mpLabels: TextBlock[] = [];
-	private actionBadges: Map<string, {
-		background: Phaser.GameObjects.Graphics;
-		icon: Phaser.GameObjects.Image;
-		text: TextBlock;
-	}> = new Map();
+	private actionBadges: Map<
+		string,
+		{
+			background: Phaser.GameObjects.Graphics;
+			icon: Phaser.GameObjects.Image;
+			text: TextBlock;
+		}
+	> = new Map();
 
 	// State
 	private activeCharacterId: string | null = null;
@@ -199,7 +202,11 @@ export class AllyStatusPanel {
 		this.updateActiveCharacterDisplay();
 	}
 
-	showActionBadge(characterId: string, actionName: string, iconFrame: number): void {
+	showActionBadge(
+		characterId: string,
+		actionName: string,
+		iconFrame: number,
+	): void {
 		// Remove existing badge for this character
 		this.hideActionBadge(characterId);
 
@@ -219,7 +226,7 @@ export class AllyStatusPanel {
 		// Create background rectangle
 		const background = this.scene.add.graphics();
 		background.setDepth(50);
-		
+
 		// Choose color based on action type
 		const actionColors = {
 			attack: Palette.RED.num,
@@ -227,10 +234,11 @@ export class AllyStatusPanel {
 			skill: Palette.PURPLE.num,
 			item: Palette.GREEN.num,
 		};
-		
+
 		const actionType = this.getActionTypeFromName(actionName);
-		const badgeColor = (actionColors as Record<string, number>)[actionType] || Palette.GRAY.num;
-		
+		const badgeColor =
+			(actionColors as Record<string, number>)[actionType] || Palette.GRAY.num;
+
 		background.fillStyle(badgeColor, 0.8);
 		background.fillRoundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 2);
 		background.lineStyle(1, Palette.WHITE.num, 0.6);
@@ -283,7 +291,7 @@ export class AllyStatusPanel {
 					badge.icon.destroy();
 					badge.text.destroy();
 					this.actionBadges.delete(characterId);
-				}
+				},
 			});
 		}
 	}
@@ -292,7 +300,13 @@ export class AllyStatusPanel {
 		const name = actionName.toLowerCase();
 		if (name.includes("attack") || name.includes("strike")) return "attack";
 		if (name.includes("defend") || name.includes("guard")) return "defend";
-		if (name.includes("heal") || name.includes("cure") || name.includes("fire") || name.includes("thunder")) return "skill";
+		if (
+			name.includes("heal") ||
+			name.includes("cure") ||
+			name.includes("fire") ||
+			name.includes("thunder")
+		)
+			return "skill";
 		if (name.includes("potion") || name.includes("item")) return "item";
 		return "attack"; // default
 	}
@@ -300,19 +314,21 @@ export class AllyStatusPanel {
 	private getAbbreviatedActionName(actionName: string): string {
 		// Dynamic abbreviation generation
 		const name = actionName.trim();
-		
+
 		// For single words <= 4 characters, return as-is
-		if (name.length <= 4 && !name.includes(' ')) {
+		if (name.length <= 4 && !name.includes(" ")) {
 			return name.toUpperCase();
 		}
-		
+
 		// For multi-word actions, take first letter of each word
-		const words = name.split(' ');
+		const words = name.split(" ");
 		if (words.length > 1) {
-			const initials = words.map(word => word.charAt(0)).join('');
-			return initials.length <= 4 ? initials.toUpperCase() : initials.substring(0, 4).toUpperCase();
+			const initials = words.map((word) => word.charAt(0)).join("");
+			return initials.length <= 4
+				? initials.toUpperCase()
+				: initials.substring(0, 4).toUpperCase();
 		}
-		
+
 		// For single long words, take first 4 characters
 		return name.substring(0, 4).toUpperCase();
 	}
@@ -425,7 +441,11 @@ export class AllyStatusPanel {
 
 		// Clean up action badges
 		this.actionBadges.forEach((badge) => {
-			this.scene.tweens.killTweensOf([badge.background, badge.icon, badge.text]);
+			this.scene.tweens.killTweensOf([
+				badge.background,
+				badge.icon,
+				badge.text,
+			]);
 			badge.background.destroy();
 			badge.icon.destroy();
 			badge.text.destroy();

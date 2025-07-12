@@ -18,15 +18,7 @@ import {
 // =============================================================================
 export type BattleFocusState =
 	| { id: "idle" }
-	| { id: "actionMenu"; character: BattleCharacter }
-	| { id: "skillMenu"; character: BattleCharacter; skills: Skill[] }
-	| {
-			id: "targetMenu";
-			character: BattleCharacter;
-			pendingAction: Partial<BattleAction>;
-			targets: BattleCharacter[];
-	  }
-	| { id: "itemMenu"; character: BattleCharacter };
+	| { id: "actionMenu"; character: BattleCharacter };
 
 // =============================================================================
 // Event Definitions
@@ -34,11 +26,6 @@ export type BattleFocusState =
 export type BattleFocusEvent =
 	| { type: "startPlayerTurn"; character: BattleCharacter }
 	| { type: "selectAttack" }
-	| { type: "selectSkill"; skills: Skill[] }
-	| { type: "selectItem" }
-	| { type: "selectTarget"; targetId: string }
-	| { type: "back" }
-	| { type: "cancel" }
 	| { type: "confirmAction"; action: BattleAction }
 	| { type: "endTurn" };
 
@@ -67,111 +54,20 @@ export const battleFocusConfig: FSMConfig<BattleFocusState, BattleFocusEvent> =
 			// From action menu
 			{
 				from: "actionMenu",
-				event: "selectSkill",
-				to: (event, fromState) => ({
-					id: "skillMenu",
-					character: (fromState as any).character,
-					skills: (event as any).skills,
-				}),
-			},
-			{
-				from: "actionMenu",
 				event: "selectAttack",
 				to: (_event, fromState) => ({
-					id: "targetMenu",
-					character: (fromState as any).character,
-					pendingAction: { type: ActionType.ATTACK },
-					targets: [], // This will be populated by the scene
-				}),
-			},
-			{
-				from: "actionMenu",
-				event: "selectItem",
-				to: (_event, fromState) => ({
-					id: "itemMenu",
-					character: (fromState as any).character,
-				}),
-			},
-
-			// From skill menu
-			{
-				from: "skillMenu",
-				event: "selectAttack", // A skill was chosen, now select a target
-				to: (_event, fromState) => ({
-					id: "targetMenu",
-					character: (fromState as any).character,
-					pendingAction: {
-						type: ActionType.SKILL,
-						skillId: (event as any).skillId,
-					},
-					targets: [], // This will be populated by the scene
-				}),
-			},
-			{
-				from: "skillMenu",
-				event: "back",
-				to: (_event, fromState) => ({
-					id: "actionMenu",
-					character: (fromState as any).character,
-				}),
-			},
-
-			// From target menu
-			{
-				from: "targetMenu",
-				event: "back",
-				// This is where a parameterized state shines. We can return to the
-				// correct previous menu (action or skill) based on the pending action.
-				to: (_event, fromState) => {
-					const { character, pendingAction } = fromState as any;
-					if (pendingAction.type === "skill") {
-						// We need to know the available skills to go back.
-						// This highlights a need to maybe pass more data around,
-						// or have the scene provide it when the state is entered.
-						return { id: "skillMenu", character, skills: [] };
-					}
-					return { id: "actionMenu", character };
-				},
-			},
-			{
-				from: "targetMenu",
-				event: "selectTarget",
-				to: (_event, _fromState) => {
-					// The action is now fully defined.
-					// We could transition to a "confirming" state, but for now
-					// let's just go back to idle as the action is executed.
-					return { id: "idle" };
-				},
-			},
-
-			// From item menu
-			{
-				from: "itemMenu",
-				event: "back",
-				to: (_event, fromState) => ({
-					id: "actionMenu",
-					character: (fromState as any).character,
-				}),
-			},
-
-			// Cancelling returns to the action menu (or idle if nothing is happening)
-			{
-				from: ["skillMenu", "targetMenu", "itemMenu"],
-				event: "cancel",
-				to: (_event, fromState) => ({
-					id: "actionMenu",
-					character: (fromState as any).character,
+					id: "idle",
 				}),
 			},
 
 			// Action confirmed or turn ends -> return to idle
 			{
-				from: ["actionMenu", "targetMenu", "itemMenu", "skillMenu"],
+				from: "actionMenu",
 				event: "confirmAction",
 				to: () => ({ id: "idle" }),
 			},
 			{
-				from: ["actionMenu", "skillMenu", "targetMenu", "itemMenu"],
+				from: "actionMenu",
 				event: "endTurn",
 				to: () => ({ id: "idle" }),
 			},

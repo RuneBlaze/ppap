@@ -939,9 +939,10 @@ export class BattleScene extends BaseScene {
 				return "Attack";
 			case ActionType.DEFEND:
 				return "Defend";
-			case ActionType.SKILL:
+			case ActionType.SKILL: {
 				const skill = this.availableSkills.find((s) => s.id === action.skillId);
 				return skill?.name || "Skill";
+			}
 			case ActionType.ITEM:
 				return "Item";
 			default:
@@ -955,11 +956,12 @@ export class BattleScene extends BaseScene {
 				return 0;
 			case ActionType.DEFEND:
 				return 12;
-			case ActionType.SKILL:
+			case ActionType.SKILL: {
 				const skillIndex = this.availableSkills.findIndex(
 					(s) => s.id === action.skillId,
 				);
 				return 24 + (skillIndex >= 0 ? skillIndex : 0);
+			}
 			case ActionType.ITEM:
 				return 36;
 			default:

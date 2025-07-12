@@ -7,6 +7,7 @@
 		"dev": "vite",
 		"build": "tsc && vite build",
 		"preview": "vite preview",
+		"test": "vitest",
 		"format": "biome format --write .",
 		"lint": "biome lint --write .",
 		"check": "biome check --write ."
@@ -14,15 +15,22 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.0.6",
 		"@types/alpinejs": "^3.13.11",
+		"ts-node": "^10.9.2",
 		"typescript": "~5.8.3",
 		"vite": "^6.3.5",
-		"vite-plugin-toml": "^0.7.0"
+		"vite-plugin-toml": "^0.7.0",
+		"vitest": "^3.2.4"
 	},
 	"dependencies": {
+		"@ai-sdk/google": "2.0.0-beta.8",
+		"@lmnr-ai/lmnr": "^0.6.15",
+		"ai": "5.0.0-beta.15",
 		"alpinejs": "^3.14.9",
 		"navigo": "^8.11.1",
 		"phaser": "^3.90.0",
 		"remeda": "^2.22.5",
-		"ts-pattern": "^5.7.1"
+		"ses": "0.15.24",
+		"ts-pattern": "^5.7.1",
+		"zod": "^4.0.5"
 	}
 }

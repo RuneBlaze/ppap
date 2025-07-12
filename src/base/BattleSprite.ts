@@ -1,7 +1,7 @@
 import Phaser from "phaser";
+import { Palette } from "../palette";
 import { Popup } from "../ui/primitives/Popup";
 import type { IlluminationTarget } from "./ps";
-import { Palette } from "../palette";
 
 export class BattleSprite
 	extends Phaser.GameObjects.Sprite

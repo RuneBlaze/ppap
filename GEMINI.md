@@ -65,22 +65,58 @@ Do not preserve backward compatibility when making API changes unless explicitly
 
 When applicable and offering a readability or efficiency advantage, prefer using `remeda` and `ts-pattern` as utility libraries. Ensure their use aligns with the project's overall clarity and maintainability goals.
 
+### 13. Keep Testing Simple and Focused
+
+By default, we do not write unit tests for UI components or other parts of the 'imperative shell'. Tests are encouraged for self-contained, 'functional core' logic like parsers, algorithms, or complex state transformations. When writing tests, we use `vitest`. Tests should be kept simple and focused, with a maximum of three assertions per test to maintain low complexity and easy review.
+
 ---
 
-## Workflow & Ticketing
+## Workflow & GitHub Issues
 
-To maintain a clear, organized, and asynchronous workflow, we use a lightweight ticketing system. All significant changes to the codebase should be managed through this process.
+To maintain a clear, organized, and asynchronous workflow, we use GitHub Issues for task management. All significant changes to the codebase should be managed through this process.
 
 ### The Process
 
 1.  **Architect (Gemini):** When a new feature, refactor, or bugfix is requested, Gemini's role is to first understand the request in the context of the existing codebase. This involves reading relevant files, analyzing the current architecture, and identifying potential impacts.
-2.  **Ticket Creation (Gemini):** After analysis, Gemini will create a new ticket in the `/tickets` directory. The ticket should be a markdown file (e.g., `TICKET-003-new-feature.md`) and include:
-    *   A clear, descriptive title.
-    *   The assignee (usually Claude) and reporter (Gemini).
-    *   A **Summary** of the task and its purpose.
-    *   A detailed **Architectural Plan** or **Task List** for implementation.
-    *   **Architectural Justification** explaining *why* this approach is being taken, referencing our principles.
-3.  **Execution (Claude):** Claude's role is to execute the plan outlined in the ticket. Claude should follow the instructions precisely, adhering to the project's coding standards and architectural principles.
+2.  **Issue Creation (Gemini):** After analysis, Gemini will create a GitHub issue. To avoid shell injection issues with complex markdown, the issue body will be written to a temporary file and then passed to the `gh` CLI.
+    
+    First, write the body to a temp file:
+    ```bash
+    cat <<'EOF' > temp_issue_body.md
+    ## Summary
+    Brief description of the task and its purpose.
+    
+    ## Architectural Plan
+    Detailed implementation steps and task breakdown.
+    
+    ## Architectural Justification
+    Explanation of why this approach is being taken, referencing our principles.
+    EOF
+    ```
+
+    Then, create the issue using the file:
+    ```bash
+    gh issue create --assignee @claude --label enhancement --title "Feature: Add dice rolling system" --body-file temp_issue_body.md
+    ```
+
+    Finally, remove the temporary file:
+    ```bash
+    rm temp_issue_body.md
+    ```
+3.  **Execution (Claude):** Claude's role is to execute the plan outlined in the issue. Claude should follow the instructions precisely, adhering to the project's coding standards and architectural principles. Reference the issue number in commit messages.
 4.  **Verification (Claude/Gemini):** After implementation, the changes should be verified. This may involve running builds (`pnpm build`), tests, or simply confirming the application runs as expected. Both assistants are responsible for ensuring the final result is correct.
+5.  **Closure (Claude):** When implementation is complete, close the issue with a reference to the final commit:
+    ```bash
+    gh issue close 123 --comment "Completed in commit abc123"
+    ```
+
+### GitHub Issue Labels
+
+Use appropriate labels for categorization:
+- `enhancement` - New features
+- `bug` - Bug fixes  
+- `refactor` - Code refactoring
+- `architecture` - Architectural changes
+- `documentation` - Documentation updates
 
 This process ensures that every change is well-planned, architecturally sound, and documented for future reference.

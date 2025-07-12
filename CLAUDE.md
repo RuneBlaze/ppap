@@ -20,6 +20,9 @@ pnpm build
 # Preview production build
 pnpm preview
 
+# Run tests
+pnpm test
+
 # Code formatting and linting (use these to fix basic code issues)
 pnpm format  # Format code with Biome
 pnpm lint    # Lint and auto-fix issues with Biome
@@ -139,6 +142,17 @@ ALWAYS run `pnpm check` to automatically fix basic code issues (unused imports, 
 - **Embrace Change:** Do not preserve backward compatibility when making API changes unless explicitly required.
 - **Ruthless Deletion:** Delete unused code; do not comment it out.
 - **Utility Preference:** When applicable and offering a readability or efficiency advantage, prefer using `remeda` and `ts-pattern` as utility libraries.
+- **Testing Philosophy:** By default, do not write unit tests for UI components. Tests are encouraged only for self-contained, functional-core logic (e.g., parsers, algorithms). When writing tests, use `vitest` and keep them simple (max 3 asserts per test).
+
+## Testing Guidelines
+
+- Use **vitest** for all testing (configured automatically via Vite)
+- Place test files adjacent to source files with `.test.ts` extension
+- Test files should import from relative paths to the module under test
+- For deterministic tests, assert exact values (e.g., `(2 + 3) * 4 = 20`)
+- For non-deterministic features like dice rolls, test ranges and types
+- Keep tests focused and minimal - each test should verify one specific behavior
+- Use descriptive test names that explain the expected behavior
 
 ## Import Patterns
 
@@ -161,20 +175,78 @@ The "@" alias maps to the `src/` directory and is configured in both `tsconfig.j
 
 ---
 
-## Workflow & Ticketing
+## Workflow & GitHub Issues
 
-To maintain a clear, organized, and asynchronous workflow, we use a lightweight ticketing system. All significant changes to the codebase should be managed through this process.
+To maintain a clear, organized, and asynchronous workflow, we use GitHub Issues for task management. All significant changes to the codebase should be managed through this process.
 
 ### The Process
 
 1.  **Architect (Gemini):** When a new feature, refactor, or bugfix is requested, Gemini's role is to first understand the request in the context of the existing codebase. This involves reading relevant files, analyzing the current architecture, and identifying potential impacts.
-2.  **Ticket Creation (Gemini):** After analysis, Gemini will create a new ticket in the `/tickets` directory. The ticket should be a markdown file (e.g., `TICKET-003-new-feature.md`) and include:
-    *   A clear, descriptive title.
-    *   The assignee (usually Claude) and reporter (Gemini).
-    *   A **Summary** of the task and its purpose.
-    *   A detailed **Architectural Plan** or **Task List** for implementation.
-    *   **Architectural Justification** explaining *why* this approach is being taken, referencing our principles.
-3.  **Execution (Claude):** Your role is to execute the plan outlined in the ticket. Follow the instructions precisely, adhering to the project's coding standards and architectural principles.
+2.  **Issue Creation (Gemini):** After analysis, Gemini will create a GitHub issue. To avoid shell injection issues with complex markdown, the issue body will be written to a temporary file and then passed to the `gh` CLI.
+    
+    First, write the body to a temp file:
+    ```bash
+    cat <<'EOF' > temp_issue_body.md
+    ## Summary
+    Brief description of the task and its purpose.
+    
+    ## Architectural Plan
+    Detailed implementation steps and task breakdown.
+    
+    ## Architectural Justification
+    Explanation of why this approach is being taken, referencing our principles.
+    EOF
+    ```
+
+    Then, create the issue using the file:
+    ```bash
+    gh issue create --assignee @me --label enhancement --title "Feature: Add dice rolling system" --body-file temp_issue_body.md
+    ```
+
+    Finally, remove the temporary file:
+    ```bash
+    rm temp_issue_body.md
+    ```
+3.  **Execution (Claude):** Your role is to execute the plan outlined in the issue. Follow the instructions precisely, adhering to the project's coding standards and architectural principles. Reference the issue number in commit messages.
 4.  **Verification (Claude/Gemini):** After implementation, the changes should be verified. This may involve running builds (`pnpm build`), tests, or simply confirming the application runs as expected. Both assistants are responsible for ensuring the final result is correct.
+5.  **Closure (Claude):** When implementation is complete, close the issue with a reference to the final commit:
+    ```bash
+    gh issue close 123 --comment "Completed in commit abc123"
+    ```
+
+### GitHub Issue Commands
+
+```bash
+# Create issue with proper body formatting
+# 1. Write the body to a temp file
+cat <<'EOF' > temp_issue_body.md
+## Summary
+Task description
+
+## Architectural Plan
+Implementation steps
+
+## Architectural Justification
+Why this approach
+EOF
+
+# 2. Create the issue from the file
+gh issue create --assignee @me --label enhancement --title "Title" --body-file temp_issue_body.md
+
+# 3. (Optional) Remove the temp file
+rm temp_issue_body.md
+
+# List active issues assigned to you
+gh issue list --assignee @me --state open
+
+# View issue details
+gh issue view 123
+
+# Close completed issue
+gh issue close 123 --comment "Completed in commit abc123"
+
+# Add comment to issue
+gh issue comment 123 --body "Progress update"
+```
 
 This process ensures that every change is well-planned, architecturally sound, and documented for future reference.

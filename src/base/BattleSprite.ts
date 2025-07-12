@@ -69,7 +69,7 @@ export class BattleSprite
 
 	public flash() {
 		// Prevent crash if scene is gone (e.g., during scene transition)
-		if (!this.scene) {
+		if (!this.scene || !this.scene.tweens) {
 			return;
 		}
 

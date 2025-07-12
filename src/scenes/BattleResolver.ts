@@ -1,10 +1,16 @@
+import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
+import { hasToolCall, streamText } from "ai";
+import { tool } from "ai";
+import { XMLParser } from "fast-xml-parser";
 import { pipe, sort } from "remeda";
+import { z } from "zod";
+import { diceRollTool } from "../dice";
 import {
 	ActionType,
 	type BattleAction,
 	type BattleCharacter,
 	type Skill,
-} from "./BattleScene";
+} from "../battle/types";
 
 /**
  * Base interface for all battle outcome events
@@ -78,14 +84,41 @@ export type BattleOutcome =
 	| StatusChangeOutcome
 	| ActionCompleteOutcome;
 
+/**
+ * Interface for XML battle actions
+ */
+interface XMLStatAction {
+	type: "mp_heal" | "mp_cost" | "mp_damage" | "hp_damage" | "hp_heal";
+	targetId: string;
+	amount: number;
+}
+
+interface XMLStatusAction {
+	type: "status_change";
+	targetId: string;
+	status: "death" | "defend"; // Use the same status types as StatusChangeOutcome
+}
+
+type XMLBattleAction = XMLStatAction | XMLStatusAction;
+
 export class BattleResolver {
 	public readonly resolutionQueue: readonly BattleCharacter[];
-	private readonly allCharacters: BattleCharacter[];
 	private readonly availableSkills: Skill[];
+	private readonly xmlParser: XMLParser;
 
 	constructor(turnOrder: BattleCharacter[], availableSkills: Skill[]) {
-		this.allCharacters = [...turnOrder];
 		this.availableSkills = availableSkills;
+
+		// Initialize XML parser
+		this.xmlParser = new XMLParser({
+			ignoreAttributes: false,
+			attributeNamePrefix: "@_",
+			parseAttributeValue: true,
+			parseTagValue: true,
+			ignoreDeclaration: true,
+			ignorePiTags: true,
+			trimValues: true,
+		});
 
 		// Create a sanitized and sorted queue for resolution.
 		const uniqueCharacters = turnOrder.filter(
@@ -102,30 +135,113 @@ export class BattleResolver {
 	}
 
 	/**
-	 * New async generator that yields specific outcome events for each action resolution.
-	 * This replaces the monolithic ResolutionStep with granular events.
+	 * Stateless async generator that yields specific outcome events for each action resolution.
+	 * Takes the initial character state and calculates outcomes without mutating state.
 	 */
-	public async *resolveActionsAsOutcomes(): AsyncGenerator<BattleOutcome> {
-		for (const character of this.resolutionQueue) {
-			// Skip this character if they were defeated by a faster character this turn
-			if (!character.isAlive) {
-				continue;
+	public async *resolveActionsAsOutcomes(
+		initialCharacters: BattleCharacter[],
+	): AsyncGenerator<BattleOutcome> {
+		const initialTodos = this.resolutionQueue.map((character) => {
+			const action = character.selectedAction!;
+			const target = initialCharacters.find((c) => c.id === action.targetId);
+			const targetName = target ? target.name : "an unknown target";
+
+			const skill =
+				action.type === ActionType.SKILL
+					? this.availableSkills.find((s) => s.id === action.skillId)
+					: null;
+			const skillName = skill ? skill.name : "Unknown Skill";
+
+			switch (action.type) {
+				case ActionType.ATTACK:
+					return `${character.name} attacks ${targetName}.`;
+				case ActionType.SKILL:
+					return `${character.name} uses skill '${skillName}' on ${targetName}.`;
+				case ActionType.DEFEND:
+					return `${character.name} takes a defensive stance.`;
+				case ActionType.ITEM:
+					return `${character.name} uses an item on ${targetName}.`;
+				default:
+					return `Resolve ${character.name}'s action.`;
 			}
+		});
 
-			// This check is technically redundant due to constructor filtering, but safe.
-			if (!character.selectedAction) continue;
+		const battleActionTool = this.createBattleActionTool(initialCharacters);
+		const qedTool = tool({
+			description:
+				"Call this tool when all actions in the list have been resolved and the battle turn resolution is finished.",
+			inputSchema: z.object({}),
+			execute: async () => ({
+				success: true,
+				message: "Q.E.D. All tasks complete.",
+			}),
+		});
 
-			// Yield all outcomes for this character's action
-			yield* this.executeActionAsOutcomes(character, character.selectedAction);
+		const characterContext = initialCharacters
+			.map(
+				(c) =>
+					`- ${c.name} (id: ${c.id}, hp: ${c.currentHP}/${c.maxHP}, mp: ${c.currentMP}/${c.maxMP}, speed: ${c.speed}, isAlive: ${c.isAlive})`,
+			)
+			.join("\n");
+
+		const systemPrompt = `You are the Game Master (GM) for a fantasy RPG battle. Your role is to narrate the action and determine the outcome of each character's chosen intent for the turn. You will be given a list of actions to resolve.
+
+Your Core Directives:
+
+1.  **Follow the Order:** Process the actions in the list you are given, sequentially from top to bottom.
+2.  **Interpret Intent:** Your first step for each action is to understand the character's intent (e.g., "Hero attacks Slime").
+3.  **Determine Outcome with Dice:** Use the \`dice\` tool to add randomness and determine success or failure, damage, or other effects. Be creative but fair. For a standard attack, you might roll \`1d20\` to hit, and \`2d6\` for damage.
+4.  **Translate to Concrete Effects:** Based on the intent and dice rolls, translate the action into one or more concrete effects using the \`battleAction\` tool. This is how you make things happen in the game. For example, a successful hit becomes \`<hp_damage targetId="some-enemy">25</hp_damage>\`. A "defend" action becomes \`<status_change targetId="char-id" status="defend" />\`.
+5.  **Signal Completion:** Once all actions in the list have been resolved, you MUST call the \`qed\` tool to signify the end of the turn resolution.
+
+Important Context: You will be provided with the current state of all characters in the battle, including their IDs (for \`targetId\`), stats, etc. Use this information to inform your dice rolls and \`battleAction\` calls.`;
+
+		const google = createGoogleGenerativeAI({
+			apiKey: import.meta.env.VITE_GOOGLE_API_KEY,
+		});
+		const result = await streamText({
+			model: google("gemini-2.5-flash-preview-05-20"),
+			system: systemPrompt,
+			prompt: `The turn begins. Here is the current state of the battlefield:
+
+${characterContext}
+
+Here are the actions you must resolve, in order:
+${initialTodos.map((todo, i) => `${i + 1}. ${todo}`).join("\n")}
+
+Please begin resolving the actions. Call the 'qed' tool when you have resolved all of them.`,
+			tools: {
+				battleAction: battleActionTool,
+				dice: diceRollTool,
+				qed: qedTool,
+			},
+			stopWhen: hasToolCall("qed"),
+		});
+
+		for await (const part of result.fullStream) {
+			if (part.type === "tool-result" && part.toolName === "battleAction") {
+				const toolOutput = part.output as {
+					success: boolean;
+					outcomes: BattleOutcome[];
+				};
+				if (toolOutput.success && toolOutput.outcomes) {
+					for (const outcome of toolOutput.outcomes) {
+						yield outcome;
+					}
+				}
+			} else if (part.type === "text") {
+				console.log(`[GM]: ${part.text}`);
+			}
 		}
 	}
 
 	/**
-	 * New method that executes an action and yields granular outcome events
+	 * Stateless method that executes an action and yields granular outcome events
 	 */
 	private *executeActionAsOutcomes(
 		character: BattleCharacter,
 		action: BattleAction,
+		allCharacters: BattleCharacter[],
 	): Generator<BattleOutcome> {
 		console.log(
 			`[RESOLVER] ${character.name} (${character.id}) performs ${action.type}`,
@@ -138,7 +254,7 @@ export class BattleResolver {
 			actionType: action.type,
 		};
 
-		const target = this.findCharacterById(action.targetId);
+		const target = this.findCharacterById(action.targetId, allCharacters);
 
 		// Handle different action types with explicit if-else to support yield
 		if (action.type === ActionType.ATTACK) {
@@ -146,9 +262,6 @@ export class BattleResolver {
 			const isCrit = Math.random() < 0.1; // 10% crit chance
 
 			if (target) {
-				const wasAlive = target.isAlive;
-				this.applyDamage(target, damage);
-
 				// Emit damage event
 				yield {
 					type: "damage",
@@ -157,8 +270,9 @@ export class BattleResolver {
 					isCrit,
 				};
 
-				// Check if target died
-				if (wasAlive && !target.isAlive) {
+				// Check if target would die (calculate death based on initial state)
+				const wouldDie = target.isAlive && target.currentHP - damage <= 0;
+				if (wouldDie) {
 					yield {
 						type: "status_change",
 						targetId: target.id,
@@ -187,13 +301,8 @@ export class BattleResolver {
 					};
 				}
 
-				character.currentMP = Math.max(0, character.currentMP - skill.mpCost);
-
 				if (target) {
 					if (skill.damage) {
-						const wasAlive = target.isAlive;
-						this.applyDamage(target, skill.damage);
-
 						// Emit damage event
 						yield {
 							type: "damage",
@@ -202,8 +311,10 @@ export class BattleResolver {
 							isCrit: false, // Skills don't crit for now
 						};
 
-						// Check if target died
-						if (wasAlive && !target.isAlive) {
+						// Check if target would die (calculate death based on initial state)
+						const wouldDie =
+							target.isAlive && target.currentHP - skill.damage <= 0;
+						if (wouldDie) {
 							yield {
 								type: "status_change",
 								targetId: target.id,
@@ -211,8 +322,6 @@ export class BattleResolver {
 							};
 						}
 					} else if (skill.healing) {
-						this.applyHealing(target, skill.healing);
-
 						// Emit healing event
 						yield {
 							type: "heal",
@@ -234,22 +343,244 @@ export class BattleResolver {
 		};
 	}
 
-	private findCharacterById(id?: string): BattleCharacter | undefined {
-		if (!id) return undefined;
-		return this.allCharacters.find((c) => c.id === id);
-	}
+	/**
+	 * Parse XML battle actions and validate targets
+	 */
+	private parseXMLBattleActions(xmlString: string): XMLBattleAction[] {
+		try {
+			// Wrap the XML string in a root element to handle multiple actions
+			const wrappedXml = `<actions>${xmlString}</actions>`;
+			const parsed = this.xmlParser.parse(wrappedXml);
 
-	private applyDamage(character: BattleCharacter, damage: number) {
-		character.currentHP = Math.max(0, character.currentHP - damage);
-		if (character.currentHP <= 0) {
-			character.isAlive = false;
+			if (!parsed.actions) {
+				throw new Error("No valid actions found in XML");
+			}
+
+			const actions: XMLBattleAction[] = [];
+			const actionTypes = [
+				"mp_heal",
+				"mp_cost",
+				"mp_damage",
+				"hp_damage",
+				"hp_heal",
+				"status_change",
+			];
+
+			for (const actionType of actionTypes) {
+				const actionData = parsed.actions[actionType];
+				if (actionData) {
+					// Handle both single action and array of actions
+					const actionArray = Array.isArray(actionData)
+						? actionData
+						: [actionData];
+
+					for (const action of actionArray) {
+						if (actionType === "status_change") {
+							const targetId = action["@_targetId"];
+							const status = action["@_status"];
+							if (!targetId || typeof targetId !== "string") {
+								throw new Error(
+									"Invalid or missing targetId for status_change",
+								);
+							}
+							if (status !== "death" && status !== "defend") {
+								throw new Error(`Invalid status "${status}" for status_change`);
+							}
+							actions.push({
+								type: "status_change",
+								targetId,
+								status,
+							});
+							continue;
+						}
+
+						let targetId: string;
+						let amount: number;
+
+						// Handle different XML structures
+						if (typeof action === "object" && action["@_targetId"]) {
+							targetId = action["@_targetId"];
+							amount =
+								typeof action === "object" && action["#text"]
+									? parseFloat(action["#text"])
+									: parseFloat(action);
+						} else if (typeof action === "string") {
+							throw new Error(`Missing targetId attribute for ${actionType}`);
+						} else {
+							throw new Error(`Invalid structure for ${actionType}`);
+						}
+
+						// Validate targetId
+						if (!targetId || typeof targetId !== "string") {
+							throw new Error(`Invalid or missing targetId for ${actionType}`);
+						}
+
+						// Note: Target validation will be done when the method is called with actual character data
+
+						// Validate amount
+						if (isNaN(amount) || amount < 0) {
+							throw new Error(`Invalid amount '${amount}' for ${actionType}`);
+						}
+
+						actions.push({
+							type: actionType as XMLStatAction["type"],
+							targetId,
+							amount: Math.floor(amount),
+						});
+					}
+				}
+			}
+
+			return actions;
+		} catch (error) {
+			throw new Error(
+				`XML parsing failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 		}
 	}
 
-	private applyHealing(character: BattleCharacter, healing: number) {
-		character.currentHP = Math.min(
-			character.maxHP,
-			character.currentHP + healing,
-		);
+	/**
+	 * Execute XML battle actions and yield outcomes (stateless)
+	 */
+	private *executeXMLActionsAsOutcomes(
+		actions: XMLBattleAction[],
+		allCharacters: BattleCharacter[],
+	): Generator<BattleOutcome> {
+		for (const action of actions) {
+			const target = this.findCharacterById(action.targetId, allCharacters);
+			if (!target) continue; // Should not happen due to validation, but safety check
+
+			console.log(
+				`[XML ACTION] ${action.type} on ${target.name} for ${"amount" in action ? action.amount : action.status}`,
+			);
+
+			switch (action.type) {
+				case "hp_damage": {
+					yield {
+						type: "damage",
+						targetId: target.id,
+						amount: action.amount,
+						isCrit: false,
+					};
+
+					// Check if target would die (calculate death based on initial state)
+					const wouldDie =
+						target.isAlive && target.currentHP - action.amount <= 0;
+					if (wouldDie) {
+						yield {
+							type: "status_change",
+							targetId: target.id,
+							status: "death",
+						};
+					}
+					break;
+				}
+
+				case "hp_heal": {
+					yield {
+						type: "heal",
+						targetId: target.id,
+						amount: action.amount,
+					};
+					break;
+				}
+
+				case "mp_cost": {
+					yield {
+						type: "mp_cost",
+						sourceId: target.id,
+						amount: action.amount,
+					};
+					break;
+				}
+
+				case "mp_heal": {
+					// Calculate actual healing based on initial state
+					const actualHealing = Math.min(
+						action.amount,
+						target.maxMP - target.currentMP,
+					);
+
+					// For MP healing, we'll use a heal outcome with MP context
+					// This could be extended to have specific MP heal outcomes in the future
+					yield {
+						type: "heal", // This should be a specific 'mp_heal' outcome type ideally
+						targetId: target.id,
+						amount: actualHealing,
+					};
+					break;
+				}
+
+				case "mp_damage": {
+					yield {
+						type: "mp_cost",
+						sourceId: target.id,
+						amount: action.amount,
+					};
+					break;
+				}
+
+				case "status_change": {
+					yield {
+						type: "status_change",
+						targetId: target.id,
+						status: action.status,
+					};
+					break;
+				}
+			}
+		}
+	}
+
+	/**
+	 * Tool for executing XML-defined battle actions
+	 */
+	public createBattleActionTool(initialCharacters: BattleCharacter[]) {
+		return tool({
+			description:
+				"Execute battle actions defined in XML format. Supports mp_heal, mp_cost, mp_damage, hp_damage, hp_heal with targetId attributes.",
+			inputSchema: z.object({
+				xmlActions: z
+					.string()
+					.describe(
+						'XML string containing battle actions, e.g., "<hp_damage targetId=\\"char1\\">30</hp_damage><mp_heal targetId=\\"char2\\">20</mp_heal>"',
+					),
+			}),
+			execute: async ({ xmlActions }) => {
+				try {
+					const actions = this.parseXMLBattleActions(xmlActions);
+					const outcomes: BattleOutcome[] = [];
+
+					// Collect all outcomes from the generator
+					for (const outcome of this.executeXMLActionsAsOutcomes(
+						actions,
+						initialCharacters,
+					)) {
+						outcomes.push(outcome);
+					}
+
+					return {
+						success: true,
+						actionsExecuted: actions.length,
+						outcomes,
+						message: `Successfully executed ${actions.length} battle action(s)`,
+					};
+				} catch (error) {
+					return {
+						success: false,
+						error: error instanceof Error ? error.message : String(error),
+						outcomes: [],
+					};
+				}
+			},
+		});
+	}
+
+	private findCharacterById(
+		id?: string,
+		characters?: BattleCharacter[],
+	): BattleCharacter | undefined {
+		if (!id || !characters) return undefined;
+		return characters.find((c) => c.id === id);
 	}
 }

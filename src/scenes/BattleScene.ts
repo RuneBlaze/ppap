@@ -1,12 +1,16 @@
-import { filter, pipe, sample, sort } from "remeda";
+import { filter, pipe, sample } from "remeda";
 import { BattleSprite } from "../base/BattleSprite";
+import { BattleStateManager } from "../battle/BattleStateManager";
+import {
+	type ActionDefinition,
+	ActionType,
+	type BattleAction,
+	type BattleCharacter,
+} from "../battle/types";
 import { Palette } from "../palette";
 import type { NoisePatternShader } from "../shaders/NoisePatternShader";
 import { ActionWidget } from "../ui/components/ActionWidget";
-import {
-	AllyStatusPanel,
-	type Character,
-} from "../ui/components/AllyStatusPanel";
+import { AllyStatusPanel } from "../ui/components/AllyStatusPanel";
 import { BattleQueue, type QueueEntry } from "../ui/components/BattleQueue";
 import { ProgressBar } from "../ui/primitives/ProgressBar";
 import { TextBlock } from "../ui/primitives/TextBlock";
@@ -18,48 +22,6 @@ import {
 	battleFocusConfig,
 } from "./BattleFocusConfig";
 import { type BattleOutcome, BattleResolver } from "./BattleResolver";
-
-export enum ActionType {
-	ATTACK = "attack",
-	DEFEND = "defend",
-	SKILL = "skill",
-	ITEM = "item",
-}
-
-export interface BattleCharacter extends Character {
-	speed: number;
-	isPlayer: boolean;
-	selectedAction?: BattleAction;
-}
-
-export interface BattleAction {
-	type: ActionType;
-	skillId?: string;
-	itemId?: string;
-	targetId?: string;
-	damage?: number;
-	healing?: number;
-}
-
-export interface ActionDefinition {
-	id: string;
-	name: string;
-	type: ActionType;
-	iconFrame: number;
-	skillId?: string;
-	mpCost?: number;
-	damage?: number;
-	healing?: number;
-}
-
-export interface Skill {
-	id: string;
-	name: string;
-	mpCost: number;
-	damage?: number;
-	healing?: number;
-	description: string;
-}
 
 // ---------------------------------------------------------------------------
 // Layout constants for the 427 × 240 battle canvas
@@ -78,11 +40,8 @@ export class BattleScene extends BaseScene {
 		BattleFocusState,
 		BattleFocusEvent
 	>;
-	// Character data
-	private playerParty: BattleCharacter[] = [];
-	private enemyParty: BattleCharacter[] = [];
-	private turnOrder: BattleCharacter[] = [];
-	private turnIndex: number = 0;
+	// Battle state manager
+	private stateManager!: BattleStateManager;
 
 	// UI elements
 	private actionWidgets: ActionWidget[] = [];
@@ -109,41 +68,6 @@ export class BattleScene extends BaseScene {
 		getBounds: () => Phaser.Geom.Rectangle;
 	}[] = [];
 
-	// Battle state
-	private isResolvingActions = false; // Used to prevent double resolution
-
-	// Available skills
-	private availableSkills: Skill[] = [
-		{
-			id: "fire",
-			name: "Fire",
-			mpCost: 5,
-			damage: 25,
-			description: "Deals fire damage",
-		},
-		{
-			id: "heal",
-			name: "Heal",
-			mpCost: 8,
-			healing: 30,
-			description: "Restores HP",
-		},
-		{
-			id: "thunder",
-			name: "Thunder",
-			mpCost: 12,
-			damage: 40,
-			description: "Deals lightning damage",
-		},
-		{
-			id: "cure",
-			name: "Cure",
-			mpCost: 15,
-			healing: 50,
-			description: "Restores more HP",
-		},
-	];
-
 	constructor() {
 		super("BattleScene");
 	}
@@ -155,7 +79,7 @@ export class BattleScene extends BaseScene {
 	protected createScene() {
 		// Shaders are now registered in BootScene
 
-		this.initializeBattleData();
+		this.stateManager = new BattleStateManager();
 		this.createUI();
 		this.initializeFocusManager(); // Must be after UI is created
 		this.initializeDebugComponents(); // Must be after UI is created
@@ -185,7 +109,7 @@ export class BattleScene extends BaseScene {
 					event.newState.id === "idle" &&
 					event.event.type === "confirmAction"
 				) {
-					this.turnIndex++;
+					this.stateManager.advanceTurnIndex();
 					this.processNextCharacter();
 					this.activePlayerIndicator?.setVisible(false);
 				}
@@ -204,15 +128,15 @@ export class BattleScene extends BaseScene {
 		this.allyStatusPanel?.setActiveCharacter(character.id);
 		this.animateCharacterTransition(character);
 
-		const playerIndex = this.playerParty.findIndex(
-			(p) => p.id === character.id,
-		);
+		const playerIndex = this.stateManager
+			.getPlayerParty()
+			.findIndex((p) => p.id === character.id);
 		if (playerIndex === -1) {
 			return;
 		}
 
 		const playerSectionWidth = 64; // Fixed width of 64px per character
-		const panelWidth = this.playerParty.length * 64; // 64px per character
+		const panelWidth = this.stateManager.getPlayerParty().length * 64; // 64px per character
 		const panelX = (SCENE_WIDTH - panelWidth) / 2; // Center horizontally
 		const sectionX = panelX + playerIndex * playerSectionWidth;
 
@@ -225,9 +149,9 @@ export class BattleScene extends BaseScene {
 
 	private animateCharacterTransition(character: BattleCharacter) {
 		// Pokemon B2W2 style character transition effects
-		const playerIndex = this.playerParty.findIndex(
-			(p) => p.id === character.id,
-		);
+		const playerIndex = this.stateManager
+			.getPlayerParty()
+			.findIndex((p) => p.id === character.id);
 		if (playerIndex === -1 || !this.allyStatusPanel) return;
 
 		// Get the character's portrait bounds for animation
@@ -280,7 +204,7 @@ export class BattleScene extends BaseScene {
 		];
 
 		// Add individual skills that the character can afford
-		this.availableSkills.forEach((skill, index) => {
+		this.stateManager.getAvailableSkills().forEach((skill, index) => {
 			if (character.currentMP >= skill.mpCost) {
 				actions.push({
 					id: skill.id,
@@ -411,14 +335,20 @@ export class BattleScene extends BaseScene {
 			actionDef.type === ActionType.ATTACK ||
 			(actionDef.damage && actionDef.damage > 0)
 		) {
-			const aliveEnemies = filter(this.enemyParty, (e) => e.isAlive);
+			const aliveEnemies = filter(
+				this.stateManager.getEnemyParty(),
+				(e) => e.isAlive,
+			);
 			const randomEnemy = sample(aliveEnemies, 1)[0];
 			return randomEnemy?.id || "";
 		}
 
 		// For healing skills, target allies
 		if (actionDef.healing && actionDef.healing > 0) {
-			const aliveAllies = filter(this.playerParty, (p) => p.isAlive);
+			const aliveAllies = filter(
+				this.stateManager.getPlayerParty(),
+				(p) => p.isAlive,
+			);
 			const randomAlly = sample(aliveAllies, 1)[0];
 			return randomAlly?.id || "";
 		}
@@ -525,95 +455,6 @@ export class BattleScene extends BaseScene {
 		}
 	}
 
-	private initializeBattleData() {
-		// Initialize player party
-		this.playerParty = [
-			{
-				id: "hero",
-				name: "Hero",
-				level: 10,
-				maxHP: 100,
-				currentHP: 85,
-				maxMP: 50,
-				currentMP: 40,
-				speed: 15,
-				isPlayer: true,
-				isAlive: true,
-			},
-			{
-				id: "mage",
-				name: "Mage",
-				level: 11,
-				maxHP: 70,
-				currentHP: 65,
-				maxMP: 80,
-				currentMP: 70,
-				speed: 12,
-				isPlayer: true,
-				isAlive: true,
-			},
-			{
-				id: "rumia",
-				name: "Rumia",
-				level: 9,
-				maxHP: 90,
-				currentHP: 90,
-				maxMP: 30,
-				currentMP: 30,
-				speed: 14,
-				isPlayer: true,
-				isAlive: true,
-			},
-			{
-				id: "momiji",
-				name: "Momiji",
-				level: 10,
-				maxHP: 120,
-				currentHP: 110,
-				maxMP: 20,
-				currentMP: 20,
-				speed: 13,
-				isPlayer: true,
-				isAlive: true,
-			},
-		];
-
-		// Initialize enemy party
-		this.enemyParty = [
-			{
-				id: "goblin1",
-				name: "Goblin",
-				level: 5,
-				maxHP: 60,
-				currentHP: 60,
-				maxMP: 20,
-				currentMP: 20,
-				speed: 10,
-				isPlayer: false,
-				isAlive: true,
-			},
-			{
-				id: "orc1",
-				name: "Orc",
-				level: 8,
-				maxHP: 120,
-				currentHP: 120,
-				maxMP: 30,
-				currentMP: 30,
-				speed: 8,
-				isPlayer: false,
-				isAlive: true,
-			},
-		];
-
-		this.turnOrder = pipe(
-			[...this.playerParty, ...this.enemyParty],
-			filter((char) => char.isAlive),
-			sort((a, b) => b.speed - a.speed),
-		);
-		this.turnIndex = 0;
-	}
-
 	private createUI() {
 		// Create main battle UI layout
 		this.createBattleLayout();
@@ -665,8 +506,9 @@ export class BattleScene extends BaseScene {
 		/* ---------------- Enemy Sprites -------------------------------------- */
 		const enemyWindowX = OUTER_MARGIN;
 		const enemyWindowY = OUTER_MARGIN;
-		const enemySectionWidth = WINDOW_WIDTH / this.enemyParty.length;
-		this.enemyParty.forEach((enemy, index) => {
+		const enemyParty = this.stateManager.getEnemyParty();
+		const enemySectionWidth = WINDOW_WIDTH / enemyParty.length;
+		enemyParty.forEach((enemy, index) => {
 			const sectionStartX = enemyWindowX + enemySectionWidth * index;
 			const centerX = sectionStartX + enemySectionWidth / 2;
 
@@ -718,14 +560,15 @@ export class BattleScene extends BaseScene {
 		this.playerWindowY = playerWindowY; // expose for other UI elements
 
 		// Create the ally status panel component - horizontally centered
-		const panelWidth = this.playerParty.length * 64; // 64px per character
+		const playerParty = this.stateManager.getPlayerParty();
+		const panelWidth = playerParty.length * 64; // 64px per character
 		const panelX = (SCENE_WIDTH - panelWidth) / 2; // Center horizontally
 		this.allyStatusPanel = new AllyStatusPanel(this, {
 			x: panelX,
 			y: playerWindowY,
 			width: panelWidth,
 			height: PLAYER_WINDOW_HEIGHT,
-			characters: this.playerParty,
+			characters: playerParty,
 		});
 		this.allyStatusPanel.create();
 
@@ -745,23 +588,25 @@ export class BattleScene extends BaseScene {
 
 	private processNextCharacter() {
 		// Don't process if we're in the middle of resolving actions
-		if (this.isResolvingActions) {
+		if (this.stateManager.isCurrentlyResolvingActions()) {
 			console.log(
 				"Skipping processNextCharacter - currently resolving actions",
 			);
 			return;
 		}
 
-		if (this.turnIndex >= this.turnOrder.length) {
+		if (this.stateManager.isCurrentTurnComplete()) {
 			// All characters have acted, resolve actions
 			console.log("All characters have acted, starting resolution...");
 			this.resolveActions();
 			return;
 		}
 
-		const currentCharacter = this.turnOrder[this.turnIndex];
+		const currentCharacter = this.stateManager.getCurrentCharacter();
+		if (!currentCharacter) return;
+
 		console.log(
-			`Processing character ${this.turnIndex + 1}/${this.turnOrder.length}: ${currentCharacter.name} (${currentCharacter.isPlayer ? "Player" : "Enemy"})`,
+			`Processing character ${this.stateManager.getTurnIndex() + 1}/${this.stateManager.getTurnOrder().length}: ${currentCharacter.name} (${currentCharacter.isPlayer ? "Player" : "Enemy"})`,
 		);
 
 		if (currentCharacter.isPlayer) {
@@ -790,14 +635,14 @@ export class BattleScene extends BaseScene {
 	private processEnemyAction(character: BattleCharacter) {
 		// Simple AI: enemies always attack a random player
 		const randomTarget = pipe(
-			this.playerParty,
+			this.stateManager.getPlayerParty(),
 			filter((p) => p.isAlive),
 			sample(1),
 		)[0];
 
 		if (!randomTarget) {
 			console.warn("No living players for enemy to target.");
-			this.turnIndex++;
+			this.stateManager.advanceTurnIndex();
 			this.processNextCharacter();
 			return;
 		}
@@ -808,7 +653,7 @@ export class BattleScene extends BaseScene {
 		};
 
 		// Move to next character
-		this.turnIndex++;
+		this.stateManager.advanceTurnIndex();
 		this.processNextCharacter();
 	}
 
@@ -816,13 +661,16 @@ export class BattleScene extends BaseScene {
 		console.log("Resolving all actions...");
 
 		// Prevent double resolution
-		if (this.isResolvingActions) {
+		if (this.stateManager.isCurrentlyResolvingActions()) {
 			console.log("Already resolving actions, skipping...");
 			return;
 		}
-		this.isResolvingActions = true;
+		this.stateManager.setResolvingActions(true);
 
-		const resolver = new BattleResolver(this.turnOrder, this.availableSkills);
+		const resolver = new BattleResolver(
+			this.stateManager.getTurnOrder(),
+			this.stateManager.getAvailableSkills(),
+		);
 
 		// Build battle queue entries from the resolver's calculated queue
 		const queueEntries: QueueEntry[] = resolver.resolutionQueue.map(
@@ -844,14 +692,17 @@ export class BattleScene extends BaseScene {
 
 		// Use the new outcome-based resolution system
 
-		for await (const outcome of resolver.resolveActionsAsOutcomes()) {
+		const initialCharacters = this.stateManager.getTurnOrder();
+		for await (const outcome of resolver.resolveActionsAsOutcomes(
+			initialCharacters,
+		)) {
 			// Handle each outcome event with dedicated handlers
 			await this.handleBattleOutcome(outcome);
 
 			// Track when we start a new action for queue management
 			if (outcome.type === "action_start") {
 				// Reveal enemy action in the queue UI
-				const character = this.findCharacterById(outcome.sourceId);
+				const character = this.stateManager.findCharacterById(outcome.sourceId);
 				if (character && !character.isPlayer) {
 					const actionName = this.getActionDisplayName(
 						character.selectedAction!,
@@ -882,12 +733,16 @@ export class BattleScene extends BaseScene {
 			case "action_start":
 				return this.onActionStart(outcome);
 			case "damage":
+				this.stateManager.applyDamage(outcome.targetId, outcome.amount);
 				return this.onDamage(outcome);
 			case "heal":
+				this.stateManager.applyHealing(outcome.targetId, outcome.amount);
 				return this.onHeal(outcome);
 			case "mp_cost":
+				this.stateManager.applyMpCost(outcome.sourceId, outcome.amount);
 				return this.onMpCost(outcome);
 			case "status_change":
+				this.stateManager.applyStatusChange(outcome.targetId, outcome.status);
 				return this.onStatusChange(outcome);
 			case "action_complete":
 				return this.onActionComplete(outcome);
@@ -904,7 +759,7 @@ export class BattleScene extends BaseScene {
 		sourceId: string;
 		actionType: ActionType;
 	}): Promise<void> {
-		const character = this.findCharacterById(outcome.sourceId);
+		const character = this.stateManager.findCharacterById(outcome.sourceId);
 		if (!character) return;
 
 		console.log(`${character.name} starts ${outcome.actionType}`);
@@ -927,9 +782,9 @@ export class BattleScene extends BaseScene {
 				});
 			}
 		} else {
-			const enemyIndex = this.enemyParty.findIndex(
-				(e) => e.id === character.id,
-			);
+			const enemyIndex = this.stateManager
+				.getEnemyParty()
+				.findIndex((e) => e.id === character.id);
 			if (enemyIndex !== -1 && this.enemySprites[enemyIndex]) {
 				this.enemySprites[enemyIndex].flash();
 			}
@@ -948,14 +803,14 @@ export class BattleScene extends BaseScene {
 		amount: number;
 		isCrit: boolean;
 	}): Promise<void> {
-		const target = this.findCharacterById(outcome.targetId);
+		const target = this.stateManager.findCharacterById(outcome.targetId);
 		if (!target) return;
 
 		console.log(
 			`${target.name} takes ${outcome.amount} damage${outcome.isCrit ? " (CRITICAL!)" : ""}!`,
 		);
 
-		// Update displays
+		// Update displays now that state is changed
 		this.updatePlayerDisplay();
 		this.updateEnemyDisplay();
 
@@ -976,12 +831,12 @@ export class BattleScene extends BaseScene {
 		targetId: string;
 		amount: number;
 	}): Promise<void> {
-		const target = this.findCharacterById(outcome.targetId);
+		const target = this.stateManager.findCharacterById(outcome.targetId);
 		if (!target) return;
 
 		console.log(`${target.name} recovers ${outcome.amount} HP!`);
 
-		// Update displays
+		// Update displays now that state is changed
 		this.updatePlayerDisplay();
 		this.updateEnemyDisplay();
 
@@ -999,7 +854,7 @@ export class BattleScene extends BaseScene {
 		sourceId: string;
 		amount: number;
 	}): Promise<void> {
-		const source = this.findCharacterById(outcome.sourceId);
+		const source = this.stateManager.findCharacterById(outcome.sourceId);
 		if (!source) return;
 
 		console.log(`${source.name} uses ${outcome.amount} MP`);
@@ -1020,9 +875,10 @@ export class BattleScene extends BaseScene {
 		targetId: string;
 		status: "death" | "defend";
 	}): Promise<void> {
-		const target = this.findCharacterById(outcome.targetId);
+		const target = this.stateManager.findCharacterById(outcome.targetId);
 		if (!target) return;
 
+		// The state is already updated by the stateManager, so we just log and animate.
 		switch (outcome.status) {
 			case "death":
 				console.log(`${target.name} has been defeated!`);
@@ -1044,7 +900,7 @@ export class BattleScene extends BaseScene {
 		type: "action_complete";
 		sourceId: string;
 	}): Promise<void> {
-		const source = this.findCharacterById(outcome.sourceId);
+		const source = this.stateManager.findCharacterById(outcome.sourceId);
 		if (source) {
 			console.log(`${source.name} completes their action`);
 		}
@@ -1053,18 +909,9 @@ export class BattleScene extends BaseScene {
 		return new Promise((resolve) => this.time.delayedCall(100, resolve));
 	}
 
-	/**
-	 * Helper method to find character by ID across both parties
-	 */
-	private findCharacterById(id: string): BattleCharacter | undefined {
-		return [...this.playerParty, ...this.enemyParty].find(
-			(char) => char.id === id,
-		);
-	}
-
 	private finishResolution() {
 		console.log("Finishing resolution phase...");
-		this.isResolvingActions = false;
+		this.stateManager.setResolvingActions(false);
 
 		// Check for battle end conditions
 		if (this.checkBattleEnd()) {
@@ -1088,7 +935,9 @@ export class BattleScene extends BaseScene {
 			case ActionType.DEFEND:
 				return "Defend";
 			case ActionType.SKILL: {
-				const skill = this.availableSkills.find((s) => s.id === action.skillId);
+				const skill = this.stateManager
+					.getAvailableSkills()
+					.find((s) => s.id === action.skillId);
 				return skill?.name || "Skill";
 			}
 			case ActionType.ITEM:
@@ -1105,9 +954,9 @@ export class BattleScene extends BaseScene {
 			case ActionType.DEFEND:
 				return 12;
 			case ActionType.SKILL: {
-				const skillIndex = this.availableSkills.findIndex(
-					(s) => s.id === action.skillId,
-				);
+				const skillIndex = this.stateManager
+					.getAvailableSkills()
+					.findIndex((s) => s.id === action.skillId);
 				return 24 + (skillIndex >= 0 ? skillIndex : 0);
 			}
 			case ActionType.ITEM:
@@ -1124,7 +973,7 @@ export class BattleScene extends BaseScene {
 			this.scene.scene &&
 			(this.scene.scene as any).isActive
 		) {
-			this.allyStatusPanel.setCharacters(this.playerParty);
+			this.allyStatusPanel.setCharacters(this.stateManager.getPlayerParty());
 			this.allyStatusPanel.updateDisplay();
 		}
 	}
@@ -1132,7 +981,7 @@ export class BattleScene extends BaseScene {
 	private updateEnemyDisplay() {
 		if (!this.scene.scene || !(this.scene.scene as any).isActive) return;
 
-		this.enemyParty.forEach((enemy, index) => {
+		this.stateManager.getEnemyParty().forEach((enemy, index) => {
 			const { currentHP } = enemy;
 			const hpBar = this.enemyHPBars[index];
 			if (
@@ -1147,18 +996,16 @@ export class BattleScene extends BaseScene {
 	}
 
 	private checkBattleEnd(): boolean {
-		const livingPlayers = filter(this.playerParty, (p) => p.isAlive);
-		const livingEnemies = filter(this.enemyParty, (e) => e.isAlive);
+		const result = this.stateManager.checkBattleEnd();
 
-		if (livingPlayers.length === 0) {
-			console.log("Game Over! All players defeated.");
-			this.scene.start("GameOverScene"); // Assuming you have a game over scene
-			return true;
-		}
-
-		if (livingEnemies.length === 0) {
-			console.log("Victory! All enemies defeated.");
-			this.scene.start("VictoryScene"); // Assuming you have a victory scene
+		if (result.isEnded) {
+			if (result.victory) {
+				console.log("Victory! All enemies defeated.");
+				this.scene.start("VictoryScene"); // Assuming you have a victory scene
+			} else {
+				console.log("Game Over! All players defeated.");
+				this.scene.start("GameOverScene"); // Assuming you have a game over scene
+			}
 			return true;
 		}
 
@@ -1168,35 +1015,24 @@ export class BattleScene extends BaseScene {
 	private startNextTurn() {
 		console.log("Starting new turn...");
 
-		// Clear all selected actions
-		this.turnOrder.forEach((character) => {
-			character.selectedAction = undefined;
-			// Clear action indicators for player characters
+		// Clear action indicators for player characters
+		this.stateManager.getTurnOrder().forEach((character) => {
 			if (character.isPlayer) {
 				this.hideSelectedActionIndicator(character.id);
 			}
 		});
 
-		// Reset resolution state
-		this.isResolvingActions = false;
-
-		// Recalculate turn order (in case characters died)
-		this.turnOrder = pipe(
-			[...this.playerParty, ...this.enemyParty],
-			filter((char) => char.isAlive),
-			sort((a, b) => b.speed - a.speed),
-		);
+		// Use state manager to handle turn reset
+		this.stateManager.startNextTurn();
 
 		console.log(
 			"New turn order:",
-			this.turnOrder.map((c) => ({
+			this.stateManager.getTurnOrder().map((c) => ({
 				id: c.id,
 				name: c.name,
 				isPlayer: c.isPlayer,
 			})),
 		);
-
-		this.turnIndex = 0; // Reset for the new turn
 
 		// Start new turn
 		this.processNextCharacter();

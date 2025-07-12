@@ -5,13 +5,8 @@
  * Each scene can define its own focus management behavior this way.
  */
 
+import type { BattleAction, BattleCharacter } from "../battle/types";
 import type { FSMConfig } from "../ui/state/GenericFocusStateMachine";
-import {
-	ActionType,
-	type BattleAction,
-	type BattleCharacter,
-	type Skill,
-} from "./BattleScene";
 
 // =============================================================================
 // State Definitions
@@ -55,7 +50,7 @@ export const battleFocusConfig: FSMConfig<BattleFocusState, BattleFocusEvent> =
 			{
 				from: "actionMenu",
 				event: "selectAttack",
-				to: (_event, fromState) => ({
+				to: () => ({
 					id: "idle",
 				}),
 			},

@@ -29,10 +29,6 @@ export class AnimationDemoScene extends BaseScene {
 	private currentAnim: Anim | null = null;
 
 	// Timeline visualisation
-	private timelineGraphics: Phaser.GameObjects.Graphics | null = null;
-	private burstEvents: { time: number; intensity: number }[] = [];
-	private readonly timelineWidth: number = 200;
-	private readonly timelineHeight: number = 40;
 
 	constructor() {
 		super("AnimationDemoScene");
@@ -283,12 +279,6 @@ export class AnimationDemoScene extends BaseScene {
 		const centerX = 213;
 		const centerY = 120;
 		this.enemySprite = new BattleSprite(this, centerX, centerY, "enemies", 2);
-
-		// Create timeline graphics just below the sprite
-		if (!this.timelineGraphics) {
-			this.timelineGraphics = this.add.graphics();
-			this.timelineGraphics.setDepth(9999); // above other artefacts
-		}
 	}
 
 	private playAnimation(animName: string) {
@@ -303,10 +293,6 @@ export class AnimationDemoScene extends BaseScene {
 
 		// Stop any current animation
 		if (this.currentAnim) {
-			// Remove sprite from illumination targets
-			if (this.enemySprite) {
-				this.currentAnim.removeIlluminationTarget(this.enemySprite);
-			}
 			this.currentAnim.dead = true;
 		}
 
@@ -321,23 +307,6 @@ export class AnimationDemoScene extends BaseScene {
 				const newAnim = this.addPredefinedAnim(animName, x, y);
 				if (newAnim && this.enemySprite) {
 					this.currentAnim = newAnim;
-
-					// HD-2D priming: connect sprite to particle illumination
-					this.currentAnim.addIlluminationTarget(this.enemySprite);
-
-					// Reset timeline event log for new iteration
-					this.burstEvents.length = 0;
-
-					// Connect burst events to sprite flash
-					this.currentAnim.onBurst((intensity) => {
-						console.log("Burst event", intensity);
-						const now = this.time.now;
-						this.burstEvents.push({ time: now, intensity: intensity ?? 1 });
-
-						if (this.enemySprite) {
-							this.enemySprite.triggerFlash(intensity ?? 1.0, 80);
-						}
-					});
 				} else {
 					console.warn(`Failed to create animation: ${animName}`);
 				}
@@ -365,63 +334,12 @@ export class AnimationDemoScene extends BaseScene {
 	// Override update to handle animation looping
 	update(time: number, delta: number): void {
 		super.update(time, delta);
-		this.updateTimeline();
 
 		// Check if current animation is dead and restart it for looping
 		if (this.currentAnim && this.currentAnim.dead && this.currentAnimation) {
 			const centerX = 213;
 			const centerY = 120;
 			this.startLoopingAnimation(this.currentAnimation, centerX, centerY);
-		}
-	}
-
-	// ---------------------------------------------------------------------
-	// Timeline rendering helpers
-	// ---------------------------------------------------------------------
-	private updateTimeline() {
-		if (!this.timelineGraphics || !this.enemySprite) return;
-
-		const g = this.timelineGraphics;
-		g.clear();
-
-		const now = this.time.now;
-		const windowMs = 1000; // 1-second window
-
-		// Baseline position under sprite
-		const originX = this.enemySprite.x - this.timelineWidth / 2;
-		const originY = this.enemySprite.y + this.enemySprite.height / 2 + 20;
-
-		// Draw baseline
-		g.lineStyle(1, Palette.WHITE.num, 1);
-		g.strokeLineShape(
-			new Phaser.Geom.Line(
-				originX,
-				originY,
-				originX + this.timelineWidth,
-				originY,
-			),
-		);
-
-		// Filter events within window
-		this.burstEvents = this.burstEvents.filter((e) => now - e.time <= windowMs);
-
-		// Determine max intensity in window for scaling (avoid division by zero)
-		let maxIntensity = 1;
-		for (const e of this.burstEvents) {
-			if (e.intensity > maxIntensity) maxIntensity = e.intensity;
-		}
-
-		// Draw each event
-		for (const e of this.burstEvents) {
-			const age = now - e.time; // 0..windowMs
-			const frac = 1 - age / windowMs; // 0 (old) .. 1 (new)
-			const x = originX + frac * this.timelineWidth;
-			const barHeight = (e.intensity / maxIntensity) * this.timelineHeight;
-
-			g.lineStyle(2, Palette.YELLOW.num, 1);
-			g.strokeLineShape(
-				new Phaser.Geom.Line(x, originY, x, originY - barHeight),
-			);
 		}
 	}
 

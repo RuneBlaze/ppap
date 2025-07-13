@@ -1,3 +1,4 @@
+import { SpritesheetKeys } from "../../assets/AssetManifest";
 import { Palette } from "../../palette";
 import { TextBlock } from "../primitives/TextBlock";
 import { Window } from "../primitives/Window";
@@ -48,7 +49,6 @@ export class BattleQueue {
 			y: this.options.y,
 			width: this.options.width,
 			height: height,
-			transparent: true,
 		});
 	}
 
@@ -122,7 +122,13 @@ export class BattleQueue {
 		container.add(background);
 
 		// Character portrait (small)
-		const portrait = this.scene.add.image(14, 14, "portrait");
+		const portraitFrame = this.getPortraitFrame(entry.characterId);
+		const portrait = this.scene.add.image(
+			14,
+			14,
+			SpritesheetKeys.PORTRAITS,
+			portraitFrame,
+		);
 		portrait.setDisplaySize(24, 24);
 		container.add(portrait);
 
@@ -234,6 +240,20 @@ export class BattleQueue {
 
 	isComplete(): boolean {
 		return this.currentIndex >= this.queue.length;
+	}
+
+	/**
+	 * Maps character IDs to portrait frame indices
+	 * Based on the portraits.png spritesheet layout: Aeryn (0), Kael (1), Liora (2), Bram (3)
+	 */
+	private getPortraitFrame(characterId: string): number {
+		const frameMap: Record<string, number> = {
+			aeryn: 0, // Top-left
+			kael: 1, // Top-right
+			liora: 2, // Bottom-left
+			bram: 3, // Bottom-right
+		};
+		return frameMap[characterId] ?? 0; // Default to first frame if not found
 	}
 
 	destroy(): void {

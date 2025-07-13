@@ -96,7 +96,7 @@ To maintain a clear, organized, and asynchronous workflow, we use GitHub Issues 
 
     Then, create the issue using the file:
     ```bash
-    gh issue create --assignee @claude --label enhancement --title "Feature: Add dice rolling system" --body-file temp_issue_body.md
+    gh issue create --assignee @me --label enhancement --title "Feature: Add dice rolling system" --body-file temp_issue_body.md
     ```
 
     Finally, remove the temporary file:

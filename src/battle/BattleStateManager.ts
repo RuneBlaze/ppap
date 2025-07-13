@@ -131,8 +131,8 @@ export class BattleStateManager {
 		// Initialize player party
 		this.playerParty = [
 			{
-				id: "hero",
-				name: "Hero",
+				id: "aeryn",
+				name: "Aeryn",
 				level: 10,
 				maxHP: 100,
 				currentHP: 85,
@@ -143,8 +143,8 @@ export class BattleStateManager {
 				isAlive: true,
 			},
 			{
-				id: "mage",
-				name: "Mage",
+				id: "kael",
+				name: "Kael",
 				level: 11,
 				maxHP: 70,
 				currentHP: 65,
@@ -155,8 +155,8 @@ export class BattleStateManager {
 				isAlive: true,
 			},
 			{
-				id: "rumia",
-				name: "Rumia",
+				id: "liora",
+				name: "Liora",
 				level: 9,
 				maxHP: 90,
 				currentHP: 90,
@@ -167,8 +167,8 @@ export class BattleStateManager {
 				isAlive: true,
 			},
 			{
-				id: "momiji",
-				name: "Momiji",
+				id: "bram",
+				name: "Bram",
 				level: 10,
 				maxHP: 120,
 				currentHP: 110,

@@ -5,6 +5,7 @@
 // when a sprite sheet becomes available.
 
 import Phaser from "phaser";
+import { SpritesheetKeys } from "@/assets/AssetManifest";
 import { PsPaletteArray } from "./ps_palette";
 
 /* -------------------------------------------------------------------------
@@ -48,21 +49,6 @@ export interface EmitterConfig {
 interface Vec2 {
 	x: number;
 	y: number;
-}
-
-// HD-2D priming: interfaces for sprite illumination and flash effects
-export interface IlluminationTarget {
-	sprite: Phaser.GameObjects.Sprite;
-	baseIntensity: number;
-	currentIntensity: number;
-	updateIllumination(intensity: number): void;
-}
-
-export interface FlashEvent {
-	timing: number; // frame timing
-	intensity: number; // flash intensity
-	duration: number; // flash duration in frames
-	triggered: boolean;
 }
 
 /* -------------------------------------------------------------------------
@@ -198,9 +184,6 @@ class Emitter {
 	burstDone = false;
 	pos: Vec2;
 
-	// HD-2D priming: burst callback support
-	onBurstCallback?: () => void;
-
 	constructor(x: number, y: number, config: EmitterConfig) {
 		this.pos = { x, y };
 		this.config = config;
@@ -215,11 +198,6 @@ class Emitter {
 				totalSpawned += this.spawn(amount);
 				this.burstDone = true;
 				this.emitting = false;
-
-				// HD-2D priming: trigger burst callback
-				if (this.onBurstCallback) {
-					this.onBurstCallback();
-				}
 			} else {
 				this.emitTimeAcc += this.config.frequency * dt * 60; // frequency is #/frame, convert to # per sec
 				const amount = Math.floor(this.emitTimeAcc);
@@ -339,13 +317,6 @@ export class Anim {
 	previouslyEmitting = true;
 	playSpeed = 1;
 
-	// HD-2D priming: illumination and flash timing hooks
-	private illuminationTargets: Set<IlluminationTarget> = new Set();
-	private flashEvents: FlashEvent[] = [];
-	private burstCallbacks: ((intensity?: number) => void)[] = [];
-	private emissionHistory: number[] = []; // rolling 1-second history of emissions
-	private lastBurstFrame: number = -Infinity; // frame index of last detected burst
-
 	constructor(
 		x: number,
 		y: number,
@@ -357,10 +328,6 @@ export class Anim {
 		for (const ec of emitterConfigs) {
 			const e = new Emitter(x, y, ec);
 			const delay = ec.appear_delay ?? 0;
-
-			// NOTE: We no longer forward emitter-level burst events directly. A
-			// statistical detector below will identify significant peaks across all
-			// emitters and invoke burst callbacks at most once per second.
 
 			if (delay > 0) {
 				this.queued.push({ emitter: e, delay });
@@ -381,10 +348,8 @@ export class Anim {
 		}
 
 		let allDead = true;
-		let frameSpawned = 0;
 		for (const e of this.emitters) {
-			const spawned = e.update(dt * this.playSpeed);
-			frameSpawned += spawned;
+			e.update(dt * this.playSpeed);
 			e.draw();
 			if (e.particles.length > 0 || e.emitting) {
 				allDead = false;
@@ -393,56 +358,6 @@ export class Anim {
 		if (allDead && this.queued.length === 0) {
 			this.dead = true;
 		}
-
-		// -------------------------------------------------------------------
-		// Burst detection — identify emission peaks and trigger callbacks
-		// -------------------------------------------------------------------
-		const histLen = this.emissionHistory.length;
-		let histMean = 0;
-		let histMax = 0;
-
-		if (histLen > 0) {
-			for (const v of this.emissionHistory) {
-				histMean += v;
-				if (v > histMax) histMax = v;
-			}
-			histMean /= histLen;
-		}
-
-		let histStd = 0;
-		if (histLen > 1) {
-			let variance = 0;
-			for (const v of this.emissionHistory) {
-				variance += (v - histMean) * (v - histMean);
-			}
-			histStd = Math.sqrt(variance / histLen);
-		}
-
-		const threshold = histMean + histStd * 1.5;
-		const minThreshold = 5;
-
-		// Ensure at most one big burst per second (>=60 frames apart)
-		if (
-			frameSpawned > Math.max(threshold, minThreshold) &&
-			this.timer - this.lastBurstFrame >= 20
-		) {
-			// Use history's max or current spawn count to normalize intensity.
-			const maxForIntensity = Math.max(histMax, frameSpawned);
-			const intensity =
-				maxForIntensity > 0 ? Math.min(frameSpawned / maxForIntensity, 1) : 0;
-			this.burstCallbacks.forEach((cb) => cb(intensity));
-			this.lastBurstFrame = this.timer;
-		}
-
-		// Update history for the next frame
-		this.emissionHistory.push(frameSpawned);
-		if (this.emissionHistory.length > 60) {
-			this.emissionHistory.shift(); // keep ~1 second of history (60 fps)
-		}
-
-		// HD-2D priming: update illumination and flash effects
-		this.updateIllumination();
-		this.processFlashEvents();
 	}
 
 	stop() {
@@ -451,54 +366,12 @@ export class Anim {
 		}
 	}
 
-	// HD-2D priming: illumination and flash management
-	addIlluminationTarget(target: IlluminationTarget) {
-		this.illuminationTargets.add(target);
-	}
-
-	removeIlluminationTarget(target: IlluminationTarget) {
-		this.illuminationTargets.delete(target);
-	}
-
-	addFlashEvent(timing: number, intensity: number, duration: number = 0.1) {
-		this.flashEvents.push({ timing, intensity, duration, triggered: false });
-	}
-
-	onBurst(callback: (intensity?: number) => void) {
-		this.burstCallbacks.push(callback);
-	}
-
-	private updateIllumination() {
-		// Calculate particle-based illumination intensity
-		let totalIntensity = 0;
-		for (const emitter of this.emitters) {
-			totalIntensity += emitter.particles.length * 0.1; // Base illumination per particle
-		}
-
-		// Apply to all illumination targets
-		for (const target of this.illuminationTargets) {
-			target.updateIllumination(totalIntensity);
-		}
-	}
-
-	private processFlashEvents() {
-		for (const flash of this.flashEvents) {
-			if (!flash.triggered && this.timer >= flash.timing) {
-				flash.triggered = true;
-				// Trigger flash on all illumination targets
-				for (const target of this.illuminationTargets) {
-					target.updateIllumination(flash.intensity);
-				}
-			}
-		}
-	}
-
 	/**
 	 * Flush all queued draw calls using Phaser friendly GameObjects.
 	 *
 	 * - Circles are rendered through a single persistent Graphics object that
 	 *   is cleared each frame.
-	 * - Sprite calls are batched via a Blitter using the `ps_particle` sprite
+	 * - Sprite calls are batched via a Blitter using the PS_PARTICLE sprite
 	 *   sheet (8×8 cells). All bobs are cleared each frame.
 	 *
 	 * This keeps the external API identical while avoiding the extremely costly
@@ -525,18 +398,6 @@ export class Anim {
 			if (!g) {
 				g = scene.add.graphics();
 				g.setDepth(9500);
-
-				// Derive the colour hex for bloom (e.g. 0xff00ff)
-				// const colHex = Phaser.Display.Color.HexStringToColor(PsPaletteArray[paletteIdx]).color;
-
-				// Attach bloom using the circle's own colour
-				try {
-					//   g.postFX.addBloom(colHex, 2, 2, 2, 2, 6);
-					// g.postFX.addGlow(colHex, 2);
-				} catch (err) {
-					console.warn("Bloom FX unsupported on Graphics:", err);
-				}
-
 				gMap!.set(paletteIdx, g);
 			}
 			return g;
@@ -555,17 +416,39 @@ export class Anim {
 			| Phaser.GameObjects.Blitter
 			| undefined;
 		if (!blitter) {
-			// Assets are guaranteed to be loaded by BootScene
-			blitter = scene.add.blitter(0, 0, "ps_particle");
-			blitter.setDepth(9501);
-			scene.data.set(BLITTER_KEY, blitter);
+			// CRITICAL: Validate that the ps_particle spritesheet is loaded
+			if (!scene.textures.exists(SpritesheetKeys.PS_PARTICLE)) {
+				console.error(
+					`Particle system error: Spritesheet '${SpritesheetKeys.PS_PARTICLE}' not found in scene '${scene.scene.key}'`,
+				);
+				console.error("Available textures:", scene.textures.getTextureKeys());
+				console.error(
+					"This usually means BootScene didn't complete loading or scene was started prematurely",
+				);
 
-			// Use white bloom so sprites keep their own colours
-			try {
-				blitter.postFX.addBloom(0xffffff, 2, 2, 2, 2, 6);
-			} catch (err) {
-				console.warn("Bloom FX unsupported on Blitter:", err);
+				// Skip sprite rendering for this frame but continue with circles
+				// This prevents the entire particle system from crashing
+			} else {
+				try {
+					blitter = scene.add.blitter(0, 0, SpritesheetKeys.PS_PARTICLE);
+					blitter.setDepth(9501);
+					scene.data.set(BLITTER_KEY, blitter);
+					console.log(
+						`Particle system: Blitter created successfully for scene '${scene.scene.key}'`,
+					);
+				} catch (error) {
+					console.error(
+						`Failed to create particle system blitter in scene '${scene.scene.key}':`,
+						error,
+					);
+					// Continue without blitter - particles will only render as circles
+				}
 			}
+		}
+
+		// Clear all existing blitter bobs for this frame
+		if (blitter) {
+			blitter.clear();
 		}
 
 		// ---------------------------------------------------------------------
@@ -580,8 +463,24 @@ export class Anim {
 				);
 				graphics.fillCircle(dc.x, dc.y, dc.r);
 			} else if (dc.t === "spr") {
+				// Only create sprites if blitter is available
 				if (blitter) {
-					blitter.create(dc.x, dc.y, dc.n);
+					try {
+						blitter.create(dc.x, dc.y, dc.n);
+					} catch (error) {
+						console.error(
+							`Failed to create sprite particle at frame ${dc.n}:`,
+							error,
+						);
+					}
+				} else {
+					// Fallback: render sprite particles as circles
+					const graphics = getGraphicsForColour(7); // Use a default color
+					graphics.fillStyle(
+						Phaser.Display.Color.HexStringToColor(PsPaletteArray[7]).color,
+						1,
+					);
+					graphics.fillCircle(dc.x, dc.y, 2); // Small circle as fallback
 				}
 			}
 		}

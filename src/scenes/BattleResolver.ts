@@ -1,16 +1,16 @@
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
-import { hasToolCall, streamText } from "ai";
-import { tool } from "ai";
+import { hasToolCall, streamText, tool } from "ai";
+import { Eta } from "eta";
 import { XMLParser } from "fast-xml-parser";
 import { pipe, sort } from "remeda";
 import { z } from "zod";
-import { diceRollTool } from "../dice";
 import {
 	ActionType,
 	type BattleAction,
 	type BattleCharacter,
 	type Skill,
 } from "../battle/types";
+import { diceRollTool } from "../dice";
 
 /**
  * Base interface for all battle outcome events
@@ -101,13 +101,66 @@ interface XMLStatusAction {
 
 type XMLBattleAction = XMLStatAction | XMLStatusAction;
 
+/**
+ * Template for generating action descriptions
+ */
+const ACTION_TEMPLATE = `<% if (it.actionType === 'ATTACK') { %>
+<%= it.characterName %> attacks <%= it.targetName %>.
+<% } else if (it.actionType === 'SKILL') { %>
+<%= it.characterName %> uses skill '<%= it.skillName %>' on <%= it.targetName %>.
+<% } else if (it.actionType === 'DEFEND') { %>
+<%= it.characterName %> takes a defensive stance.
+<% } else if (it.actionType === 'ITEM') { %>
+<%= it.characterName %> uses an item on <%= it.targetName %>.
+<% } else { %>
+Resolve <%= it.characterName %>'s action.
+<% } %>`;
+
+/**
+ * Template for generating character context
+ */
+const CHARACTER_CONTEXT_TEMPLATE = `<% it.characters.forEach(function(c) { %>
+- <%= c.name %> (id: <%= c.id %>, hp: <%= c.currentHP %>/<%= c.maxHP %>, mp: <%= c.currentMP %>/<%= c.maxMP %>, speed: <%= c.speed %>, isAlive: <%= c.isAlive %>)
+<% }); %>`;
+
+/**
+ * Template for the system prompt
+ */
+const SYSTEM_PROMPT_TEMPLATE = `You are the Game Master (GM) for a fantasy RPG battle. Your role is to narrate the action and determine the outcome of each character's chosen intent for the turn. You will be given a list of actions to resolve.
+
+Your Core Directives:
+
+1.  **Follow the Order:** Process the actions in the list you are given, sequentially from top to bottom.
+2.  **Interpret Intent:** Your first step for each action is to understand the character's intent (e.g., "Hero attacks Slime").
+3.  **Determine Outcome with Dice:** Use the \`dice\` tool to add randomness and determine success or failure, damage, or other effects. Be creative but fair. For a standard attack, you might roll \`1d20\` to hit, and \`2d6\` for damage.
+4.  **Translate to Concrete Effects:** Based on the intent and dice rolls, translate the action into one or more concrete effects using the \`battleAction\` tool. This is how you make things happen in the game. For example, a successful hit becomes \`<hp_damage targetId="some-enemy">25</hp_damage>\`. A "defend" action becomes \`<status_change targetId="char-id" status="defend" />\`.
+5.  **Signal Completion:** Once all actions in the list have been resolved, you MUST call the \`qed\` tool to signify the end of the turn resolution.
+
+Important Context: You will be provided with the current state of all characters in the battle, including their IDs (for \`targetId\`), stats, etc. Use this information to inform your dice rolls and \`battleAction\` calls.`;
+
+/**
+ * Template for the main prompt
+ */
+const MAIN_PROMPT_TEMPLATE = `The turn begins. Here is the current state of the battlefield:
+
+<%= it.characterContext %>
+
+Here are the actions you must resolve, in order:
+<% it.actionTodos.forEach(function(todo, i) { %>
+<%= i + 1 %>. <%= todo %>
+<% }); %>
+
+Please begin resolving the actions. Call the 'qed' tool when you have resolved all of them.`;
+
 export class BattleResolver {
 	public readonly resolutionQueue: readonly BattleCharacter[];
 	private readonly availableSkills: Skill[];
 	private readonly xmlParser: XMLParser;
+	private readonly eta: Eta;
 
 	constructor(turnOrder: BattleCharacter[], availableSkills: Skill[]) {
 		this.availableSkills = availableSkills;
+		this.eta = new Eta();
 
 		// Initialize XML parser
 		this.xmlParser = new XMLParser({
@@ -141,60 +194,11 @@ export class BattleResolver {
 	public async *resolveActionsAsOutcomes(
 		initialCharacters: BattleCharacter[],
 	): AsyncGenerator<BattleOutcome> {
-		const initialTodos = this.resolutionQueue.map((character) => {
-			const action = character.selectedAction!;
-			const target = initialCharacters.find((c) => c.id === action.targetId);
-			const targetName = target ? target.name : "an unknown target";
-
-			const skill =
-				action.type === ActionType.SKILL
-					? this.availableSkills.find((s) => s.id === action.skillId)
-					: null;
-			const skillName = skill ? skill.name : "Unknown Skill";
-
-			switch (action.type) {
-				case ActionType.ATTACK:
-					return `${character.name} attacks ${targetName}.`;
-				case ActionType.SKILL:
-					return `${character.name} uses skill '${skillName}' on ${targetName}.`;
-				case ActionType.DEFEND:
-					return `${character.name} takes a defensive stance.`;
-				case ActionType.ITEM:
-					return `${character.name} uses an item on ${targetName}.`;
-				default:
-					return `Resolve ${character.name}'s action.`;
-			}
-		});
-
 		const battleActionTool = this.createBattleActionTool(initialCharacters);
-		const qedTool = tool({
-			description:
-				"Call this tool when all actions in the list have been resolved and the battle turn resolution is finished.",
-			inputSchema: z.object({}),
-			execute: async () => ({
-				success: true,
-				message: "Q.E.D. All tasks complete.",
-			}),
-		});
+		const qedTool = this.createQedTool();
 
-		const characterContext = initialCharacters
-			.map(
-				(c) =>
-					`- ${c.name} (id: ${c.id}, hp: ${c.currentHP}/${c.maxHP}, mp: ${c.currentMP}/${c.maxMP}, speed: ${c.speed}, isAlive: ${c.isAlive})`,
-			)
-			.join("\n");
-
-		const systemPrompt = `You are the Game Master (GM) for a fantasy RPG battle. Your role is to narrate the action and determine the outcome of each character's chosen intent for the turn. You will be given a list of actions to resolve.
-
-Your Core Directives:
-
-1.  **Follow the Order:** Process the actions in the list you are given, sequentially from top to bottom.
-2.  **Interpret Intent:** Your first step for each action is to understand the character's intent (e.g., "Hero attacks Slime").
-3.  **Determine Outcome with Dice:** Use the \`dice\` tool to add randomness and determine success or failure, damage, or other effects. Be creative but fair. For a standard attack, you might roll \`1d20\` to hit, and \`2d6\` for damage.
-4.  **Translate to Concrete Effects:** Based on the intent and dice rolls, translate the action into one or more concrete effects using the \`battleAction\` tool. This is how you make things happen in the game. For example, a successful hit becomes \`<hp_damage targetId="some-enemy">25</hp_damage>\`. A "defend" action becomes \`<status_change targetId="char-id" status="defend" />\`.
-5.  **Signal Completion:** Once all actions in the list have been resolved, you MUST call the \`qed\` tool to signify the end of the turn resolution.
-
-Important Context: You will be provided with the current state of all characters in the battle, including their IDs (for \`targetId\`), stats, etc. Use this information to inform your dice rolls and \`battleAction\` calls.`;
+		const systemPrompt = this.buildSystemPrompt();
+		const mainPrompt = this.buildMainPrompt(initialCharacters);
 
 		const google = createGoogleGenerativeAI({
 			apiKey: import.meta.env.VITE_GOOGLE_API_KEY,
@@ -202,14 +206,7 @@ Important Context: You will be provided with the current state of all characters
 		const result = await streamText({
 			model: google("gemini-2.5-flash-preview-05-20"),
 			system: systemPrompt,
-			prompt: `The turn begins. Here is the current state of the battlefield:
-
-${characterContext}
-
-Here are the actions you must resolve, in order:
-${initialTodos.map((todo, i) => `${i + 1}. ${todo}`).join("\n")}
-
-Please begin resolving the actions. Call the 'qed' tool when you have resolved all of them.`,
+			prompt: mainPrompt,
 			tools: {
 				battleAction: battleActionTool,
 				dice: diceRollTool,
@@ -573,6 +570,76 @@ Please begin resolving the actions. Call the 'qed' tool when you have resolved a
 					};
 				}
 			},
+		});
+	}
+
+	/**
+	 * Build the initial action todos for the AI to resolve
+	 */
+	private buildActionTodos(initialCharacters: BattleCharacter[]): string[] {
+		return this.resolutionQueue.map((character) => {
+			const action = character.selectedAction!;
+			const target = initialCharacters.find((c) => c.id === action.targetId);
+			const targetName = target ? target.name : "an unknown target";
+
+			const skill =
+				action.type === ActionType.SKILL
+					? this.availableSkills.find((s) => s.id === action.skillId)
+					: null;
+			const skillName = skill ? skill.name : "Unknown Skill";
+
+			return this.eta
+				.renderString(ACTION_TEMPLATE, {
+					actionType: action.type,
+					characterName: character.name,
+					targetName,
+					skillName,
+				})
+				.trim();
+		});
+	}
+
+	/**
+	 * Build the character context string for the AI
+	 */
+	private buildCharacterContext(characters: BattleCharacter[]): string {
+		return this.eta
+			.renderString(CHARACTER_CONTEXT_TEMPLATE, { characters })
+			.trim();
+	}
+
+	/**
+	 * Build the system prompt for the AI
+	 */
+	private buildSystemPrompt(): string {
+		return this.eta.renderString(SYSTEM_PROMPT_TEMPLATE, {});
+	}
+
+	/**
+	 * Build the main prompt for the AI
+	 */
+	private buildMainPrompt(initialCharacters: BattleCharacter[]): string {
+		const characterContext = this.buildCharacterContext(initialCharacters);
+		const actionTodos = this.buildActionTodos(initialCharacters);
+
+		return this.eta.renderString(MAIN_PROMPT_TEMPLATE, {
+			characterContext,
+			actionTodos,
+		});
+	}
+
+	/**
+	 * Create the QED tool for signaling completion
+	 */
+	private createQedTool() {
+		return tool({
+			description:
+				"Call this tool when all actions in the list have been resolved and the battle turn resolution is finished.",
+			inputSchema: z.object({}),
+			execute: async () => ({
+				success: true,
+				message: "Q.E.D. All tasks complete.",
+			}),
 		});
 	}
 

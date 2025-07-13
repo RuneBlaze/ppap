@@ -15,6 +15,7 @@ declare global {
 			toggleDithering: () => void;
 			cycleBattleHighlight: () => void;
 			resetBattleHighlight: () => void;
+			update: () => void;
 		};
 	}
 }
@@ -72,27 +73,29 @@ const router = new Navigo("/", { hash: true });
 
 // Wait for the game to be ready before setting up routes
 game.events.on("ready", () => {
+	// Store the target scene for BootScene to transition to
+	const setTargetScene = (sceneKey: string) => {
+		game.registry.set("targetScene", sceneKey);
+		// Always start with BootScene to ensure assets are loaded
+		game.scene.getScenes(true).forEach((scene) => scene.scene.stop());
+		game.scene.start("BootScene");
+	};
+
 	router
 		.on("/", () => {
-			// Stop other scenes before starting a new one
-			game.scene.getScenes(true).forEach((scene) => scene.scene.stop());
-			game.scene.start("BattleScene");
+			setTargetScene("BattleScene");
 		})
 		.on("/battle", () => {
-			game.scene.getScenes(true).forEach((scene) => scene.scene.stop());
-			game.scene.start("BattleScene");
+			setTargetScene("BattleScene");
 		})
 		.on("/shop", () => {
-			game.scene.getScenes(true).forEach((scene) => scene.scene.stop());
-			game.scene.start("ShopScene");
+			setTargetScene("ShopScene");
 		})
 		.on("/anim-demo", () => {
-			game.scene.getScenes(true).forEach((scene) => scene.scene.stop());
-			game.scene.start("AnimationDemoScene");
+			setTargetScene("AnimationDemoScene");
 		})
 		.on("/society", () => {
-			game.scene.getScenes(true).forEach((scene) => scene.scene.stop());
-			game.scene.start("SocietyScene");
+			setTargetScene("SocietyScene");
 		})
 		.resolve();
 

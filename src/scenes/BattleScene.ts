@@ -12,6 +12,7 @@ import type { NoisePatternShader } from "../shaders/NoisePatternShader";
 import { ActionWidget } from "../ui/components/ActionWidget";
 import { AllyStatusPanel } from "../ui/components/AllyStatusPanel";
 import { BattleQueue, type QueueEntry } from "../ui/components/BattleQueue";
+import { Popup } from "../ui/primitives/Popup";
 import { ProgressBar } from "../ui/primitives/ProgressBar";
 import { TextBlock } from "../ui/primitives/TextBlock";
 import { GenericFocusStateMachine } from "../ui/state/GenericFocusStateMachine";
@@ -810,12 +811,29 @@ export class BattleScene extends BaseScene {
 			`${target.name} takes ${outcome.amount} damage${outcome.isCrit ? " (CRITICAL!)" : ""}!`,
 		);
 
+		// Get target coordinates
+		const coords = this.getTargetCoordinates(outcome.targetId);
+		if (!coords) {
+			console.warn(
+				`[onDamage] Could not get coordinates for target ${target.name} (${outcome.targetId}), skipping animations.`,
+			);
+		}
+		if (coords) {
+			// Create damage popup
+			new Popup(this, coords.x, coords.y, {
+				type: "HpChange",
+				delta: -outcome.amount,
+				isCritical: outcome.isCrit,
+			});
+
+			// Add burst animation
+			this.addPredefinedAnim("burst", coords.x, coords.y);
+		}
+
 		// Update displays now that state is changed
 		this.updatePlayerDisplay();
 		this.updateEnemyDisplay();
 
-		// TODO: Add floating damage number popup here
-		// TODO: Add screen shake on crits
 		if (outcome.isCrit) {
 			this.cameras.main.shake(150, 0.005);
 		}
@@ -836,12 +854,23 @@ export class BattleScene extends BaseScene {
 
 		console.log(`${target.name} recovers ${outcome.amount} HP!`);
 
+		// Get target coordinates
+		const coords = this.getTargetCoordinates(outcome.targetId);
+		if (coords) {
+			// Create healing popup
+			new Popup(this, coords.x, coords.y, {
+				type: "HpChange",
+				delta: outcome.amount,
+				isCritical: false,
+			});
+
+			// Add heal animation
+			this.addPredefinedAnim("heal", coords.x, coords.y);
+		}
+
 		// Update displays now that state is changed
 		this.updatePlayerDisplay();
 		this.updateEnemyDisplay();
-
-		// TODO: Add floating healing number popup here
-		// TODO: Add green flash effect
 
 		return new Promise((resolve) => this.time.delayedCall(300, resolve));
 	}
@@ -859,10 +888,22 @@ export class BattleScene extends BaseScene {
 
 		console.log(`${source.name} uses ${outcome.amount} MP`);
 
+		// Get source coordinates for MP cost popup
+		const coords = this.getTargetCoordinates(outcome.sourceId);
+		if (coords) {
+			// Create MP cost popup
+			new Popup(this, coords.x, coords.y, {
+				type: "MpChange",
+				delta: -outcome.amount,
+				isCritical: false,
+			});
+
+			// Add burst animation with blue tint for MP
+			this.addPredefinedAnim("burst", coords.x, coords.y);
+		}
+
 		// Update displays to show MP changes
 		this.updatePlayerDisplay();
-
-		// TODO: Add blue flash or MP drain effect
 
 		return new Promise((resolve) => this.time.delayedCall(150, resolve));
 	}
@@ -878,15 +919,50 @@ export class BattleScene extends BaseScene {
 		const target = this.stateManager.findCharacterById(outcome.targetId);
 		if (!target) return;
 
+		// Get target coordinates for effects
+		const coords = this.getTargetCoordinates(outcome.targetId);
+
 		// The state is already updated by the stateManager, so we just log and animate.
 		switch (outcome.status) {
 			case "death":
 				console.log(`${target.name} has been defeated!`);
-				// TODO: Add death animation/effect
+				if (coords) {
+					// Make the character's sprite flash and fade out for death
+					if (target.isPlayer) {
+						const characterBounds =
+							this.allyStatusPanel?.getCharacterSectionBounds(target.id);
+						if (characterBounds) {
+							const deathFlash = this.add.graphics();
+							deathFlash.fillStyle(Palette.RED.num, 0.7);
+							deathFlash.fillRectShape(characterBounds);
+							deathFlash.setDepth(200);
+							this.tweens.add({
+								targets: deathFlash,
+								alpha: { from: 0.7, to: 0 },
+								duration: 600,
+								onComplete: () => deathFlash.destroy(),
+							});
+						}
+					} else {
+						const enemyIndex = this.stateManager
+							.getEnemyParty()
+							.findIndex((e) => e.id === target.id);
+						if (enemyIndex !== -1 && this.enemySprites[enemyIndex]) {
+							this.tweens.add({
+								targets: this.enemySprites[enemyIndex],
+								alpha: { from: 1, to: 0.3 },
+								duration: 600,
+							});
+						}
+					}
+				}
 				break;
 			case "defend":
 				console.log(`${target.name} takes a defensive stance!`);
-				// TODO: Add defend visual effect
+				if (coords) {
+					// Add shield_gain animation for defend status
+					this.addPredefinedAnim("shield_gain", coords.x, coords.y);
+				}
 				break;
 		}
 
@@ -907,6 +983,72 @@ export class BattleScene extends BaseScene {
 
 		// Small delay before next action
 		return new Promise((resolve) => this.time.delayedCall(100, resolve));
+	}
+
+	/**
+	 * Get the screen coordinates for a character (for popups and animations)
+	 */
+	private getTargetCoordinates(
+		characterId: string,
+	): { x: number; y: number } | null {
+		console.log(
+			`[getTargetCoordinates] CALLED with characterId: ${characterId}`,
+		);
+
+		try {
+			const character = this.stateManager.findCharacterById(characterId);
+			if (!character) {
+				console.warn(
+					`[getTargetCoordinates] Character not found: ${characterId}`,
+				);
+				return null;
+			}
+
+			if (character.isPlayer) {
+				// For allies, get center point from allyStatusPanel bounds
+				const characterBounds = this.allyStatusPanel?.getCharacterSectionBounds(
+					character.id,
+				);
+				if (characterBounds) {
+					const coords = {
+						x: characterBounds.x + characterBounds.width / 2,
+						y: characterBounds.y + characterBounds.height / 2,
+					};
+					console.log(
+						`[getTargetCoordinates] Player coords for ${character.name}:`,
+						coords,
+					);
+					return coords;
+				}
+				console.warn(
+					`[getTargetCoordinates] Could not get bounds for player: ${character.name}`,
+				);
+			} else {
+				// For enemies, get position from enemySprites
+				const enemyIndex = this.stateManager
+					.getEnemyParty()
+					.findIndex((e) => e.id === character.id);
+				if (enemyIndex !== -1 && this.enemySprites[enemyIndex]) {
+					const coords = {
+						x: this.enemySprites[enemyIndex].x,
+						y: this.enemySprites[enemyIndex].y,
+					};
+					console.log(
+						`[getTargetCoordinates] Enemy coords for ${character.name}:`,
+						coords,
+					);
+					return coords;
+				}
+				console.warn(
+					`[getTargetCoordinates] Could not get sprite for enemy: ${character.name}`,
+				);
+			}
+
+			return null;
+		} catch (error) {
+			console.error(`[getTargetCoordinates] Exception:`, error);
+			return null;
+		}
 	}
 
 	private finishResolution() {
@@ -968,28 +1110,17 @@ export class BattleScene extends BaseScene {
 
 	private updatePlayerDisplay() {
 		// Update the ally status panel with current character data
-		if (
-			this.allyStatusPanel &&
-			this.scene.scene &&
-			(this.scene.scene as any).isActive
-		) {
+		if (this.allyStatusPanel) {
 			this.allyStatusPanel.setCharacters(this.stateManager.getPlayerParty());
 			this.allyStatusPanel.updateDisplay();
 		}
 	}
 
 	private updateEnemyDisplay() {
-		if (!this.scene.scene || !(this.scene.scene as any).isActive) return;
-
 		this.stateManager.getEnemyParty().forEach((enemy, index) => {
 			const { currentHP } = enemy;
 			const hpBar = this.enemyHPBars[index];
-			if (
-				hpBar &&
-				hpBar.scene &&
-				hpBar.scene.scene &&
-				(hpBar.scene.scene as any).isActive
-			) {
+			if (hpBar) {
 				hpBar.setValue(currentHP, true);
 			}
 		});

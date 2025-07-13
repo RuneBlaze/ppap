@@ -1,3 +1,4 @@
+import { SpritesheetKeys } from "../../assets/AssetManifest";
 import { Palette } from "../../palette";
 import { ProgressBar } from "../primitives/ProgressBar";
 import { TextBlock } from "../primitives/TextBlock";
@@ -75,7 +76,13 @@ export class AllyStatusPanel {
 			// Portrait at top (64x64)
 			const portraitX = sectionX + 32; // Center in 64px width
 			const portraitY = this.options.y + 8 + 32; // 8px from top + half height
-			const portrait = this.scene.add.image(portraitX, portraitY, "portrait");
+			const portraitFrame = this.getPortraitFrame(character.id);
+			const portrait = this.scene.add.image(
+				portraitX,
+				portraitY,
+				SpritesheetKeys.PORTRAITS,
+				portraitFrame,
+			);
 			portrait.setDisplaySize(64, 64);
 			this.playerPortraits.push(portrait);
 
@@ -486,7 +493,12 @@ export class AllyStatusPanel {
 
 	getCharacterSectionBounds(characterId: string): Phaser.Geom.Rectangle | null {
 		const index = this.characters.findIndex((c) => c.id === characterId);
-		if (index === -1) return null;
+		if (index === -1) {
+			console.warn(
+				`[AllyStatusPanel] Character with id ${characterId} not found in internal list.`,
+			);
+			return null;
+		}
 
 		const sectionX = this.options.x + index * this.characterWidth;
 		return new Phaser.Geom.Rectangle(
@@ -495,6 +507,20 @@ export class AllyStatusPanel {
 			this.characterWidth,
 			this.options.height,
 		);
+	}
+
+	/**
+	 * Maps character IDs to portrait frame indices
+	 * Based on the portraits.png spritesheet layout: Aeryn (0), Kael (1), Liora (2), Bram (3)
+	 */
+	private getPortraitFrame(characterId: string): number {
+		const frameMap: Record<string, number> = {
+			aeryn: 0, // Top-left
+			kael: 1, // Top-right
+			liora: 2, // Bottom-left
+			bram: 3, // Bottom-right
+		};
+		return frameMap[characterId] ?? 0; // Default to first frame if not found
 	}
 
 	destroy(): void {

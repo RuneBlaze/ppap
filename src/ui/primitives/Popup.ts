@@ -23,6 +23,7 @@ export class Popup extends Phaser.GameObjects.Text {
 
 		super(scene, x, y, text, style);
 		this.setOrigin(0.5, 0.5);
+		this.setDepth(1000);
 
 		// Physics constants based on whether the popup is critical
 		if (isCritical) {
@@ -44,6 +45,7 @@ export class Popup extends Phaser.GameObjects.Text {
 		// Add icon if specified
 		if (iconIndex !== undefined) {
 			this.icon = DrawUtils.drawIcon(scene, x, y, iconIndex);
+			this.icon.setDepth(1000);
 			// This will be positioned correctly in the update loop
 		}
 

@@ -12,10 +12,10 @@ export const ImageKeys = {
 
 // Image asset definitions
 export const Images = {
-	[ImageKeys.CURSOR]: "src/assets/cursor.png",
-	[ImageKeys.PORTRAIT]: "src/assets/portrait.png",
-	[ImageKeys.CARD_BACK]: "src/assets/card.png",
-	[ImageKeys.CARD_FLIPPED]: "src/assets/card-back.png",
+	[ImageKeys.CURSOR]: "src/assets/images/cursor.png",
+	[ImageKeys.PORTRAIT]: "src/assets/images/portrait.png",
+	[ImageKeys.CARD_BACK]: "src/assets/images/card.png",
+	[ImageKeys.CARD_FLIPPED]: "src/assets/images/card-back.png",
 	// Background texture will be generated dynamically
 };
 
@@ -25,29 +25,35 @@ export const SpritesheetKeys = {
 	ENEMIES: "enemies",
 	PS_PARTICLE: "ps_particle",
 	CARD_ART: "card-art",
+	PORTRAITS: "portraits",
 } as const;
 
 // Spritesheet asset definitions
 export const Spritesheets = {
 	[SpritesheetKeys.ICONS]: {
-		path: "src/assets/icons_full_16.png",
+		path: "src/assets/spritesheets/icons_full_16.png",
 		frameWidth: 16,
 		frameHeight: 16,
 	},
 	[SpritesheetKeys.ENEMIES]: {
-		path: "src/assets/enemies.png",
+		path: "src/assets/spritesheets/enemies.png",
 		frameWidth: 64,
 		frameHeight: 64,
 	},
 	[SpritesheetKeys.PS_PARTICLE]: {
-		path: "src/assets/spritesheet_transparent.png",
+		path: "src/assets/spritesheets/spritesheet_transparent.png",
 		frameWidth: 8,
 		frameHeight: 8,
 	},
 	[SpritesheetKeys.CARD_ART]: {
-		path: "src/assets/card_art.png",
+		path: "src/assets/spritesheets/card_art.png",
 		frameWidth: 43,
 		frameHeight: 60,
+	},
+	[SpritesheetKeys.PORTRAITS]: {
+		path: "src/assets/spritesheets/portraits.png",
+		frameWidth: 64,
+		frameHeight: 64,
 	},
 };
 
@@ -58,7 +64,7 @@ export const OtherKeys = {
 
 // Other asset definitions
 export const OtherAssets = {
-	[OtherKeys.ANIMS_TOML]: "src/assets/anims.toml",
+	[OtherKeys.ANIMS_TOML]: "src/assets/data/anims.toml",
 };
 
 // Type exports for strong typing

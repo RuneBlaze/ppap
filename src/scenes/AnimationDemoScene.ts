@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import animPredefs from "../assets/anims.toml";
+import animPredefs from "../assets/data/anims.toml";
 import { BattleSprite } from "../base/BattleSprite";
 import type { Anim } from "../base/ps";
 import { Palette } from "../palette";

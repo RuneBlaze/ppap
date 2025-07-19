@@ -1,15 +1,10 @@
-import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
-import { hasToolCall, streamText, tool } from "ai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { stepCountIs, streamText } from "ai";
 import { Eta } from "eta";
-import { XMLParser } from "fast-xml-parser";
 import { pipe, sort } from "remeda";
 import { z } from "zod";
-import {
-	ActionType,
-	type BattleAction,
-	type BattleCharacter,
-	type Skill,
-} from "../battle/types";
+import { StreamingXMLParser } from "../base/StreamingXMLParser";
+import { ActionType, type BattleCharacter, type Skill } from "../battle/types";
 import { diceRollTool } from "../dice";
 
 /**
@@ -74,6 +69,30 @@ export interface ActionCompleteOutcome extends BaseBattleOutcome {
 }
 
 /**
+ * Event when the current topic/active character changes
+ */
+export interface TopicOutcome extends BaseBattleOutcome {
+	type: "topic";
+	characterId: string;
+	subject?: string; // Optional subject text for JRPG-style banner display
+}
+
+/**
+ * Event when narrative text should be displayed
+ */
+export interface NarrativeOutcome extends BaseBattleOutcome {
+	type: "narrative";
+	text: string;
+}
+
+/**
+ * Event when the turn resolution ends
+ */
+export interface TurnEndOutcome extends BaseBattleOutcome {
+	type: "turn_end";
+}
+
+/**
  * Union type of all possible battle outcomes
  */
 export type BattleOutcome =
@@ -82,24 +101,10 @@ export type BattleOutcome =
 	| HealOutcome
 	| MpCostOutcome
 	| StatusChangeOutcome
-	| ActionCompleteOutcome;
-
-/**
- * Interface for XML battle actions
- */
-interface XMLStatAction {
-	type: "mp_heal" | "mp_cost" | "mp_damage" | "hp_damage" | "hp_heal";
-	targetId: string;
-	amount: number;
-}
-
-interface XMLStatusAction {
-	type: "status_change";
-	targetId: string;
-	status: "death" | "defend"; // Use the same status types as StatusChangeOutcome
-}
-
-type XMLBattleAction = XMLStatAction | XMLStatusAction;
+	| ActionCompleteOutcome
+	| TopicOutcome
+	| NarrativeOutcome
+	| TurnEndOutcome;
 
 /**
  * Template for generating action descriptions
@@ -133,10 +138,20 @@ Your Core Directives:
 1.  **Follow the Order:** Process the actions in the list you are given, sequentially from top to bottom.
 2.  **Interpret Intent:** Your first step for each action is to understand the character's intent (e.g., "Hero attacks Slime").
 3.  **Determine Outcome with Dice:** Use the \`dice\` tool to add randomness and determine success or failure, damage, or other effects. Be creative but fair. For a standard attack, you might roll \`1d20\` to hit, and \`2d6\` for damage.
-4.  **Translate to Concrete Effects:** Based on the intent and dice rolls, translate the action into one or more concrete effects using the \`battleAction\` tool. This is how you make things happen in the game. For example, a successful hit becomes \`<hp_damage targetId="some-enemy">25</hp_damage>\`. A "defend" action becomes \`<status_change targetId="char-id" status="defend" />\`.
-5.  **Signal Completion:** Once all actions in the list have been resolved, you MUST call the \`qed\` tool to signify the end of the turn resolution.
+4.  **Translate to Concrete Effects:** Based on the intent and dice rolls, translate the action into concrete effects using inline XML tags in your narrative text. For example, a successful hit becomes \`<hp_damage targetId="some-enemy">25</hp_damage>\` embedded in your description. A "defend" action becomes \`<status_change targetId="char-id" status="defend" />\`.
+5.  **Signal Active Character:** Use \`<topic characterId="character-id" subject="skill-name" />\` to indicate when you're describing a specific character's action. The subject should be a short, descriptive phrase like the skill name or action summary.
+6.  **Signal Completion:** Once all actions in the list have been resolved, you MUST include \`<turn_end />\` to signify the end of the turn resolution.
 
-Important Context: You will be provided with the current state of all characters in the battle, including their IDs (for \`targetId\`), stats, etc. Use this information to inform your dice rolls and \`battleAction\` calls.`;
+Available XML Tags:
+- \`<hp_damage targetId="id">amount</hp_damage>\` - Deal damage to a character
+- \`<hp_heal targetId="id">amount</hp_heal>\` - Heal a character
+- \`<mp_cost targetId="id">amount</mp_cost>\` - Consume MP from a character
+- \`<mp_heal targetId="id">amount</mp_heal>\` - Restore MP to a character
+- \`<status_change targetId="id" status="death|defend" />\` - Change character status
+- \`<topic characterId="id" subject="action-name" />\` - Signal which character is currently acting with optional subject
+- \`<turn_end />\` - Signal the end of turn resolution
+
+Important Context: You will be provided with the current state of all characters in the battle, including their IDs (for \`targetId\`), stats, etc. Use this information to inform your dice rolls and XML tags.`;
 
 /**
  * Template for the main prompt
@@ -150,28 +165,121 @@ Here are the actions you must resolve, in order:
 <%= i + 1 %>. <%= todo %>
 <% }); %>
 
-Please begin resolving the actions. Call the 'qed' tool when you have resolved all of them.`;
+Please begin resolving the actions. Include <turn_end /> when you have resolved all of them.`;
 
 export class BattleResolver {
 	public readonly resolutionQueue: readonly BattleCharacter[];
 	private readonly availableSkills: Skill[];
-	private readonly xmlParser: XMLParser;
 	private readonly eta: Eta;
+	private readonly xmlParser: StreamingXMLParser<BattleOutcome>;
 
 	constructor(turnOrder: BattleCharacter[], availableSkills: Skill[]) {
 		this.availableSkills = availableSkills;
 		this.eta = new Eta();
 
-		// Initialize XML parser
-		this.xmlParser = new XMLParser({
-			ignoreAttributes: false,
-			attributeNamePrefix: "@_",
-			parseAttributeValue: true,
-			parseTagValue: true,
-			ignoreDeclaration: true,
-			ignorePiTags: true,
-			trimValues: true,
-		});
+		// Initialize XML parser with battle-specific tag handlers using Zod schemas
+		this.xmlParser = new StreamingXMLParser<BattleOutcome>()
+			.registerSelfClosing(
+				"topic",
+				z.object({
+					characterId: z.string().min(1),
+					subject: z.string().optional(), // Optional subject for JRPG-style banner
+				}),
+				(attributes) =>
+					({
+						type: "topic",
+						characterId: attributes.characterId,
+						subject: attributes.subject,
+					}) as TopicOutcome,
+				false,
+			)
+			.registerSelfClosing(
+				"turn_end",
+				z.object({}), // No attributes required
+				() =>
+					({
+						type: "turn_end",
+					}) as TurnEndOutcome,
+				true, // This tag terminates parsing
+			)
+			.registerSelfClosing(
+				"status_change",
+				z.object({
+					targetId: z.string().min(1),
+					status: z.enum(["death", "defend"]),
+				}),
+				(attributes) =>
+					({
+						type: "status_change",
+						targetId: attributes.targetId,
+						status: attributes.status,
+					}) as StatusChangeOutcome,
+			)
+			.registerContent(
+				"hp_damage",
+				z.object({
+					targetId: z.string().min(1),
+				}),
+				z
+					.string()
+					.transform((val) => parseInt(val, 10))
+					.pipe(z.number().min(0)),
+				(attributes, amount) =>
+					({
+						type: "damage",
+						targetId: attributes.targetId,
+						amount,
+						isCrit: false,
+					}) as DamageOutcome,
+			)
+			.registerContent(
+				"hp_heal",
+				z.object({
+					targetId: z.string().min(1),
+				}),
+				z
+					.string()
+					.transform((val) => parseInt(val, 10))
+					.pipe(z.number().min(0)),
+				(attributes, amount) =>
+					({
+						type: "heal",
+						targetId: attributes.targetId,
+						amount,
+					}) as HealOutcome,
+			)
+			.registerContent(
+				"mp_cost",
+				z.object({
+					targetId: z.string().min(1), // Using targetId consistently
+				}),
+				z
+					.string()
+					.transform((val) => parseInt(val, 10))
+					.pipe(z.number().min(0)),
+				(attributes, amount) =>
+					({
+						type: "mp_cost",
+						sourceId: attributes.targetId, // Using targetId as sourceId for API consistency
+						amount,
+					}) as MpCostOutcome,
+			)
+			.registerContent(
+				"mp_heal",
+				z.object({
+					targetId: z.string().min(1),
+				}),
+				z
+					.string()
+					.transform((val) => parseInt(val, 10))
+					.pipe(z.number().min(0)),
+				(attributes, amount) =>
+					({
+						type: "heal", // Treat MP heal as regular heal for now
+						targetId: attributes.targetId,
+						amount,
+					}) as HealOutcome,
+			);
 
 		// Create a sanitized and sorted queue for resolution.
 		const uniqueCharacters = turnOrder.filter(
@@ -190,13 +298,11 @@ export class BattleResolver {
 	/**
 	 * Stateless async generator that yields specific outcome events for each action resolution.
 	 * Takes the initial character state and calculates outcomes without mutating state.
+	 * Now uses streaming XML parsing instead of tools.
 	 */
 	public async *resolveActionsAsOutcomes(
 		initialCharacters: BattleCharacter[],
 	): AsyncGenerator<BattleOutcome> {
-		const battleActionTool = this.createBattleActionTool(initialCharacters);
-		const qedTool = this.createQedTool();
-
 		const systemPrompt = this.buildSystemPrompt();
 		const mainPrompt = this.buildMainPrompt(initialCharacters);
 
@@ -208,369 +314,95 @@ export class BattleResolver {
 			system: systemPrompt,
 			prompt: mainPrompt,
 			tools: {
-				battleAction: battleActionTool,
 				dice: diceRollTool,
-				qed: qedTool,
 			},
-			stopWhen: hasToolCall("qed"),
+			stopWhen: stepCountIs(10),
 		});
+
+		let accumulatedText = "";
+		let fullResponseText = "";
+		let turnEnded = false;
 
 		for await (const part of result.fullStream) {
-			if (part.type === "tool-result" && part.toolName === "battleAction") {
-				const toolOutput = part.output as {
-					success: boolean;
-					outcomes: BattleOutcome[];
-				};
-				if (toolOutput.success && toolOutput.outcomes) {
-					for (const outcome of toolOutput.outcomes) {
-						yield outcome;
-					}
-				}
-			} else if (part.type === "text") {
-				console.log(`[GM]: ${part.text}`);
-			}
-		}
-	}
+			if (part.type === "text") {
+				fullResponseText += part.text;
+				accumulatedText += part.text;
+				// console.log(`[GM]: ${part.text}`);
 
-	/**
-	 * Stateless method that executes an action and yields granular outcome events
-	 */
-	private *executeActionAsOutcomes(
-		character: BattleCharacter,
-		action: BattleAction,
-		allCharacters: BattleCharacter[],
-	): Generator<BattleOutcome> {
-		console.log(
-			`[RESOLVER] ${character.name} (${character.id}) performs ${action.type}`,
-		);
-
-		// Start of action
-		yield {
-			type: "action_start",
-			sourceId: character.id,
-			actionType: action.type,
-		};
-
-		const target = this.findCharacterById(action.targetId, allCharacters);
-
-		// Handle different action types with explicit if-else to support yield
-		if (action.type === ActionType.ATTACK) {
-			const damage = Math.floor(Math.random() * 30) + 10;
-			const isCrit = Math.random() < 0.1; // 10% crit chance
-
-			if (target) {
-				// Emit damage event
+				// Yield narrative text outcome
 				yield {
-					type: "damage",
-					targetId: target.id,
-					amount: damage,
-					isCrit,
+					type: "narrative",
+					text: part.text,
 				};
 
-				// Check if target would die (calculate death based on initial state)
-				const wouldDie = target.isAlive && target.currentHP - damage <= 0;
-				if (wouldDie) {
-					yield {
-						type: "status_change",
-						targetId: target.id,
-						status: "death",
-					};
-				}
-			}
-		} else if (action.type === ActionType.DEFEND) {
-			console.log(`${character.name} defends!`);
+				// Parse and extract XML tags from accumulated text
+				const xmlResults = this.xmlParser.parse(accumulatedText);
 
-			// Emit defend status
-			yield {
-				type: "status_change",
-				targetId: character.id,
-				status: "defend",
-			};
-		} else if (action.type === ActionType.SKILL) {
-			const skill = this.availableSkills.find((s) => s.id === action.skillId);
-			if (skill) {
-				// Emit MP cost event
-				if (skill.mpCost > 0) {
-					yield {
-						type: "mp_cost",
-						sourceId: character.id,
-						amount: skill.mpCost,
-					};
-				}
-
-				if (target) {
-					if (skill.damage) {
-						// Emit damage event
-						yield {
-							type: "damage",
-							targetId: target.id,
-							amount: skill.damage,
-							isCrit: false, // Skills don't crit for now
-						};
-
-						// Check if target would die (calculate death based on initial state)
-						const wouldDie =
-							target.isAlive && target.currentHP - skill.damage <= 0;
-						if (wouldDie) {
-							yield {
-								type: "status_change",
-								targetId: target.id,
-								status: "death",
-							};
-						}
-					} else if (skill.healing) {
-						// Emit healing event
-						yield {
-							type: "heal",
-							targetId: target.id,
-							amount: skill.healing,
-						};
-					}
-				}
-			}
-		} else if (action.type === ActionType.ITEM) {
-			console.log(`${character.name} uses an item!`);
-			// Items could have their own outcome events in the future
-		}
-
-		// End of action
-		yield {
-			type: "action_complete",
-			sourceId: character.id,
-		};
-	}
-
-	/**
-	 * Parse XML battle actions and validate targets
-	 */
-	private parseXMLBattleActions(xmlString: string): XMLBattleAction[] {
-		try {
-			// Wrap the XML string in a root element to handle multiple actions
-			const wrappedXml = `<actions>${xmlString}</actions>`;
-			const parsed = this.xmlParser.parse(wrappedXml);
-
-			if (!parsed.actions) {
-				throw new Error("No valid actions found in XML");
-			}
-
-			const actions: XMLBattleAction[] = [];
-			const actionTypes = [
-				"mp_heal",
-				"mp_cost",
-				"mp_damage",
-				"hp_damage",
-				"hp_heal",
-				"status_change",
-			];
-
-			for (const actionType of actionTypes) {
-				const actionData = parsed.actions[actionType];
-				if (actionData) {
-					// Handle both single action and array of actions
-					const actionArray = Array.isArray(actionData)
-						? actionData
-						: [actionData];
-
-					for (const action of actionArray) {
-						if (actionType === "status_change") {
-							const targetId = action["@_targetId"];
-							const status = action["@_status"];
-							if (!targetId || typeof targetId !== "string") {
-								throw new Error(
-									"Invalid or missing targetId for status_change",
-								);
-							}
-							if (status !== "death" && status !== "defend") {
-								throw new Error(`Invalid status "${status}" for status_change`);
-							}
-							actions.push({
-								type: "status_change",
-								targetId,
-								status,
-							});
-							continue;
-						}
-
-						let targetId: string;
-						let amount: number;
-
-						// Handle different XML structures
-						if (typeof action === "object" && action["@_targetId"]) {
-							targetId = action["@_targetId"];
-							amount =
-								typeof action === "object" && action["#text"]
-									? parseFloat(action["#text"])
-									: parseFloat(action);
-						} else if (typeof action === "string") {
-							throw new Error(`Missing targetId attribute for ${actionType}`);
-						} else {
-							throw new Error(`Invalid structure for ${actionType}`);
-						}
-
-						// Validate targetId
-						if (!targetId || typeof targetId !== "string") {
-							throw new Error(`Invalid or missing targetId for ${actionType}`);
-						}
-
-						// Note: Target validation will be done when the method is called with actual character data
-
-						// Validate amount
-						if (isNaN(amount) || amount < 0) {
-							throw new Error(`Invalid amount '${amount}' for ${actionType}`);
-						}
-
-						actions.push({
-							type: actionType as XMLStatAction["type"],
-							targetId,
-							amount: Math.floor(amount),
-						});
-					}
-				}
-			}
-
-			return actions;
-		} catch (error) {
-			throw new Error(
-				`XML parsing failed: ${error instanceof Error ? error.message : String(error)}`,
-			);
-		}
-	}
-
-	/**
-	 * Execute XML battle actions and yield outcomes (stateless)
-	 */
-	private *executeXMLActionsAsOutcomes(
-		actions: XMLBattleAction[],
-		allCharacters: BattleCharacter[],
-	): Generator<BattleOutcome> {
-		for (const action of actions) {
-			const target = this.findCharacterById(action.targetId, allCharacters);
-			if (!target) continue; // Should not happen due to validation, but safety check
-
-			console.log(
-				`[XML ACTION] ${action.type} on ${target.name} for ${"amount" in action ? action.amount : action.status}`,
-			);
-
-			switch (action.type) {
-				case "hp_damage": {
-					yield {
-						type: "damage",
-						targetId: target.id,
-						amount: action.amount,
-						isCrit: false,
-					};
-
-					// Check if target would die (calculate death based on initial state)
-					const wouldDie =
-						target.isAlive && target.currentHP - action.amount <= 0;
-					if (wouldDie) {
-						yield {
-							type: "status_change",
-							targetId: target.id,
-							status: "death",
-						};
-					}
-					break;
-				}
-
-				case "hp_heal": {
-					yield {
-						type: "heal",
-						targetId: target.id,
-						amount: action.amount,
-					};
-					break;
-				}
-
-				case "mp_cost": {
-					yield {
-						type: "mp_cost",
-						sourceId: target.id,
-						amount: action.amount,
-					};
-					break;
-				}
-
-				case "mp_heal": {
-					// Calculate actual healing based on initial state
-					const actualHealing = Math.min(
-						action.amount,
-						target.maxMP - target.currentMP,
+				// Log any parsing errors but continue processing
+				for (const error of xmlResults.errors) {
+					console.warn(
+						`XML parsing failed for tag '${error.tagName}': ${error.error.message}`,
+						{
+							rawTag: error.rawTag,
+							error: error.error,
+						},
 					);
-
-					// For MP healing, we'll use a heal outcome with MP context
-					// This could be extended to have specific MP heal outcomes in the future
-					yield {
-						type: "heal", // This should be a specific 'mp_heal' outcome type ideally
-						targetId: target.id,
-						amount: actualHealing,
-					};
-					break;
 				}
 
-				case "mp_damage": {
-					yield {
-						type: "mp_cost",
-						sourceId: target.id,
-						amount: action.amount,
-					};
-					break;
+				// Validate character existence and yield successful outcomes
+				for (const outcome of xmlResults.results) {
+					// Validate that referenced characters exist
+					const characterId = this.getCharacterIdFromOutcome(outcome);
+					if (
+						characterId &&
+						!initialCharacters.find((c) => c.id === characterId)
+					) {
+						console.warn(`Character not found for XML outcome:`, outcome);
+						continue;
+					}
+					yield outcome;
 				}
 
-				case "status_change": {
-					yield {
-						type: "status_change",
-						targetId: target.id,
-						status: action.status,
-					};
+				// Update accumulated text to remove processed tags (both successful and failed)
+				accumulatedText = xmlResults.remainingText;
+
+				// Check for turn end
+				if (xmlResults.terminated) {
+					turnEnded = true;
 					break;
 				}
 			}
 		}
+
+		console.log(`[GM Full Response]: ${fullResponseText}`);
+
+		// If we didn't get a turn_end tag, yield it anyway
+		if (!turnEnded) {
+			yield {
+				type: "turn_end",
+			};
+		}
 	}
 
 	/**
-	 * Tool for executing XML-defined battle actions
+	 * Extract character ID from an outcome for validation
 	 */
-	public createBattleActionTool(initialCharacters: BattleCharacter[]) {
-		return tool({
-			description:
-				"Execute battle actions defined in XML format. Supports mp_heal, mp_cost, mp_damage, hp_damage, hp_heal with targetId attributes.",
-			inputSchema: z.object({
-				xmlActions: z
-					.string()
-					.describe(
-						'XML string containing battle actions, e.g., "<hp_damage targetId=\\"char1\\">30</hp_damage><mp_heal targetId=\\"char2\\">20</mp_heal>"',
-					),
-			}),
-			execute: async ({ xmlActions }) => {
-				try {
-					const actions = this.parseXMLBattleActions(xmlActions);
-					const outcomes: BattleOutcome[] = [];
-
-					// Collect all outcomes from the generator
-					for (const outcome of this.executeXMLActionsAsOutcomes(
-						actions,
-						initialCharacters,
-					)) {
-						outcomes.push(outcome);
-					}
-
-					return {
-						success: true,
-						actionsExecuted: actions.length,
-						outcomes,
-						message: `Successfully executed ${actions.length} battle action(s)`,
-					};
-				} catch (error) {
-					return {
-						success: false,
-						error: error instanceof Error ? error.message : String(error),
-						outcomes: [],
-					};
-				}
-			},
-		});
+	private getCharacterIdFromOutcome(outcome: BattleOutcome): string | null {
+		switch (outcome.type) {
+			case "topic":
+				return outcome.characterId;
+			case "damage":
+			case "heal":
+			case "status_change":
+				return outcome.targetId;
+			case "mp_cost":
+				return outcome.sourceId;
+			case "action_start":
+			case "action_complete":
+				return outcome.sourceId;
+			default:
+				return null;
+		}
 	}
 
 	/**
@@ -626,28 +458,5 @@ export class BattleResolver {
 			characterContext,
 			actionTodos,
 		});
-	}
-
-	/**
-	 * Create the QED tool for signaling completion
-	 */
-	private createQedTool() {
-		return tool({
-			description:
-				"Call this tool when all actions in the list have been resolved and the battle turn resolution is finished.",
-			inputSchema: z.object({}),
-			execute: async () => ({
-				success: true,
-				message: "Q.E.D. All tasks complete.",
-			}),
-		});
-	}
-
-	private findCharacterById(
-		id?: string,
-		characters?: BattleCharacter[],
-	): BattleCharacter | undefined {
-		if (!id || !characters) return undefined;
-		return characters.find((c) => c.id === id);
 	}
 }

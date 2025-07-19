@@ -93,6 +93,8 @@ export class AllyStatusPanel {
 				text: character.name,
 				fontKey: "everydayStandard",
 				color: Palette.WHITE.hex,
+				strokeColor: Palette.BLACK.hex,
+				strokeWidth: 1,
 			});
 			nameText.setOrigin(0.5, 0.5);
 			this.nameTexts.push(nameText);
@@ -104,6 +106,8 @@ export class AllyStatusPanel {
 				text: `${character.level}`,
 				fontKey: "everydayStandard",
 				color: Palette.WHITE.hex,
+				strokeColor: Palette.BLACK.hex,
+				strokeWidth: 1,
 			});
 			levelText.setOrigin(0.5, 0.5);
 			this.levelTexts.push(levelText);

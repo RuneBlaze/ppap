@@ -9,20 +9,29 @@ import {
 } from "../battle/types";
 import { Palette } from "../palette";
 import type { NoisePatternShader } from "../shaders/NoisePatternShader";
-import { ActionWidget } from "../ui/components/ActionWidget";
+import { ActionMenu } from "../ui/components/ActionMenu";
 import { AllyStatusPanel } from "../ui/components/AllyStatusPanel";
-import { BattleQueue, type QueueEntry } from "../ui/components/BattleQueue";
+import { NarrativeLog } from "../ui/components/NarrativeLog";
 import { Popup } from "../ui/primitives/Popup";
 import { ProgressBar } from "../ui/primitives/ProgressBar";
+import { SubjectBanner } from "../ui/primitives/SubjectBanner";
 import { TextBlock } from "../ui/primitives/TextBlock";
 import { GenericFocusStateMachine } from "../ui/state/GenericFocusStateMachine";
+import {
+	createCharacterMap,
+	sanitizeNarrativeText,
+} from "../utils/narrative-sanitizer";
 import { BaseScene } from "./BaseScene";
 import {
 	type BattleFocusEvent,
 	type BattleFocusState,
 	battleFocusConfig,
 } from "./BattleFocusConfig";
-import { type BattleOutcome, BattleResolver } from "./BattleResolver";
+import {
+	type BattleOutcome,
+	BattleResolver,
+	type NarrativeOutcome,
+} from "./BattleResolver";
 
 // ---------------------------------------------------------------------------
 // Layout constants for the 427 × 240 battle canvas
@@ -31,10 +40,10 @@ const SCENE_WIDTH = 427;
 const SCENE_HEIGHT = 240;
 const OUTER_MARGIN = 8;
 const WINDOW_WIDTH = SCENE_WIDTH - OUTER_MARGIN * 2;
-const ENEMY_WINDOW_HEIGHT = 80;
 const PLAYER_WINDOW_HEIGHT = 90;
-const VERTICAL_SPACING = 8;
+const NARRATIVE_LOG_HEIGHT = 16;
 const PORTRAIT_SIZE = 48;
+const ENEMY_BASE_Y_POSITION = 83; // Base vertical position for all enemy sprites
 
 export class BattleScene extends BaseScene {
 	private battleFocusManager!: GenericFocusStateMachine<
@@ -44,12 +53,17 @@ export class BattleScene extends BaseScene {
 	// Battle state manager
 	private stateManager!: BattleStateManager;
 
+	// Chunk-and-play system
+	private outcomeQueue: BattleOutcome[] = [];
+	private isStreamingComplete = false;
+
 	// UI elements
-	private actionWidgets: ActionWidget[] = [];
+	private actionMenu: ActionMenu | null = null;
 
 	// Character display elements
 	private allyStatusPanel: AllyStatusPanel | null = null;
-	private battleQueue: BattleQueue | null = null;
+	private subjectBanner: SubjectBanner | null = null;
+	private narrativeLog: NarrativeLog | null = null;
 	private enemyHPBars: ProgressBar[] = [];
 	private enemySprites: BattleSprite[] = [];
 	private activePlayerIndicator: Phaser.GameObjects.Graphics | null = null;
@@ -144,12 +158,70 @@ export class BattleScene extends BaseScene {
 		// Get the anchor point for menus (center of the player's section)
 		const anchorX = sectionX + playerSectionWidth / 2;
 
-		// 2. Show action widgets in radial layout with animation
-		this.showActionWidgets(anchorX, this.playerWindowY - 60);
+		// 2. Show action menu above active character
+		this.showActionMenu(anchorX, this.playerWindowY - 60);
+	}
+
+	private updateActiveCharacterVisuals(character: BattleCharacter) {
+		// Clear previous highlighting
+		this.clearActiveCharacterVisuals();
+
+		if (character.isPlayer) {
+			// Update the ally status panel to show the active character
+			this.allyStatusPanel?.setActiveCharacter(character.id);
+		} else {
+			// Clear ally highlighting since enemy is active
+			this.allyStatusPanel?.setActiveCharacter(null);
+
+			// Highlight enemy sprite
+			const enemyIndex = this.stateManager
+				.getEnemyParty()
+				.findIndex((e) => e.id === character.id);
+			if (enemyIndex !== -1 && this.enemySprites[enemyIndex]) {
+				this.highlightEnemySprite(enemyIndex);
+			}
+		}
+
+		this.animateCharacterTransition(character);
+	}
+
+	private clearActiveCharacterVisuals() {
+		// Clear enemy highlighting
+		this.enemySprites.forEach((sprite) => {
+			this.tweens.killTweensOf(sprite);
+			sprite.setAlpha(1.0);
+		});
+	}
+
+	private highlightEnemySprite(enemyIndex: number) {
+		const enemySprite = this.enemySprites[enemyIndex];
+		if (!enemySprite) return;
+
+		// Dim other enemies
+		this.enemySprites.forEach((sprite, index) => {
+			if (index !== enemyIndex) {
+				this.tweens.add({
+					targets: sprite,
+					alpha: { from: sprite.alpha, to: 0.4 },
+					duration: 200,
+					ease: "Quad.easeOut",
+				});
+			}
+		});
+
+		// Highlight active enemy with pulsing effect
+		this.tweens.add({
+			targets: enemySprite,
+			alpha: { from: 1.0, to: 0.85 },
+			duration: 800,
+			yoyo: true,
+			repeat: -1,
+			ease: "Sine.easeInOut",
+		});
 	}
 
 	private animateCharacterTransition(character: BattleCharacter) {
-		// Pokemon B2W2 style character transition effects
+		// Clean character transition effects - just highlight, no burst/damage effects
 		const playerIndex = this.stateManager
 			.getPlayerParty()
 			.findIndex((p) => p.id === character.id);
@@ -161,31 +233,24 @@ export class BattleScene extends BaseScene {
 		);
 		if (!characterBounds) return;
 
-		// Create selection flash effect
+		// Create selection flash effect - more subtle
 		const flashGraphics = this.add.graphics();
 		flashGraphics.setDepth(200);
-		flashGraphics.fillStyle(Palette.YELLOW.num, 0.6);
+		flashGraphics.fillStyle(Palette.GOLD.num, 0.4); // Use gold instead of yellow, more subtle
 		flashGraphics.fillRectShape(characterBounds);
 
-		// Flash animation - quick pulse
+		// Flash animation - gentle highlight
 		this.tweens.add({
 			targets: flashGraphics,
-			alpha: { from: 0.6, to: 0 },
-			duration: 150,
+			alpha: { from: 0.4, to: 0 },
+			duration: 200,
 			yoyo: true,
 			repeat: 1,
 			onComplete: () => flashGraphics.destroy(),
 		});
 
-		// Add particle burst effect at character position
-		this.addPredefinedAnim(
-			"burst",
-			characterBounds.x + characterBounds.width / 2,
-			characterBounds.y + characterBounds.height / 2,
-		);
-
-		// Slight screen shake for impact
-		this.cameras.main.shake(100, 0.003);
+		// No burst effect - removed to avoid confusion with damage
+		// No screen shake - too aggressive for just becoming active
 	}
 
 	private getAvailableActions(character: BattleCharacter): ActionDefinition[] {
@@ -231,87 +296,48 @@ export class BattleScene extends BaseScene {
 		return actions;
 	}
 
-	private showActionWidgets(centerX: number, centerY: number) {
-		// Clear existing widgets
-		this.hideActionWidgets();
+	private showActionMenu(centerX: number, centerY: number) {
+		// Clear existing menu
+		this.hideActionMenu();
 
 		const currentCharacter = (this.battleFocusManager.getCurrentState() as any)
 			.character;
 		const availableActions = this.getAvailableActions(currentCharacter);
 
-		// Predefined "random" offsets that look aesthetically pleasing
-		const offsets = [
-			{ x: -4, y: -6 },
-			{ x: 3, y: -1 },
-			{ x: -2, y: 4 },
-			{ x: 4, y: 8 },
-			{ x: -3, y: 12 },
-			{ x: 2, y: 16 },
-			{ x: -1, y: 20 },
-			{ x: 5, y: 24 },
-		];
+		// Create action menu
+		this.actionMenu = new ActionMenu(this, {
+			x: centerX,
+			y: centerY,
+			actions: availableActions,
+			onSelect: (action) => this.onActionSelected(action),
+		});
 
-		const verticalSpacing = 20;
-		const maxPerColumn = 4;
+		// Animate menu appearance
+		this.actionMenu.setAlpha(0);
+		this.actionMenu.setScale(0.8);
 
-		availableActions.forEach((actionDef, index) => {
-			const column = Math.floor(index / maxPerColumn);
-			const row = index % maxPerColumn;
-			const offset = offsets[index] || { x: 0, y: 0 };
-
-			const x = centerX + column * 30 + offset.x; // 30px between columns
-			const y = centerY - 30 + row * verticalSpacing + offset.y; // Start above center
-
-			const widget = new ActionWidget(this, {
-				x,
-				y,
-				iconKey: "icons",
-				iconFrame: actionDef.iconFrame,
-				size: 16,
-				label: actionDef.name,
-				onSelect: () => this.onActionSelected(actionDef),
-			});
-
-			// Animate widget appearance with staggered timing
-			const animationDelay = index * 50; // 50ms delay between each widget
-			widget.setAlpha(0);
-			widget.setScale(0.3);
-
-			this.time.delayedCall(animationDelay, () => {
-				this.tweens.add({
-					targets: widget,
-					alpha: { from: 0, to: 1 },
-					scaleX: { from: 0.3, to: 1.2 },
-					scaleY: { from: 0.3, to: 1.2 },
-					duration: 150,
-					ease: "Back.easeOut",
-					onComplete: () => {
-						// Secondary bounce to normal size
-						this.tweens.add({
-							targets: widget,
-							scaleX: { from: 1.2, to: 1 },
-							scaleY: { from: 1.2, to: 1 },
-							duration: 100,
-							ease: "Quad.easeOut",
-						});
-					},
-				});
-			});
-
-			this.actionWidgets.push(widget);
+		this.tweens.add({
+			targets: this.actionMenu,
+			alpha: { from: 0, to: 1 },
+			scaleX: { from: 0.8, to: 1 },
+			scaleY: { from: 0.8, to: 1 },
+			duration: 200,
+			ease: "Back.easeOut",
 		});
 	}
 
-	private hideActionWidgets() {
-		this.actionWidgets.forEach((widget) => widget.destroy());
-		this.actionWidgets = [];
+	private hideActionMenu() {
+		if (this.actionMenu) {
+			this.actionMenu.destroy();
+			this.actionMenu = null;
+		}
 	}
 
 	private onActionSelected(actionDef: ActionDefinition) {
 		console.log(`Action selected: ${actionDef.name}`);
 
-		// Hide widgets after selection
-		this.hideActionWidgets();
+		// Hide menu after selection
+		this.hideActionMenu();
 
 		const currentCharacter = (this.battleFocusManager.getCurrentState() as any)
 			.character;
@@ -379,16 +405,30 @@ export class BattleScene extends BaseScene {
 		this.debugGraphics = this.add.graphics();
 		this.debugGraphics.setDepth(999); // Ensure it's on top
 
-		// --- Enemy Window ---
+		// --- Enemy Area ---
 		this.debugComponents.push({
-			name: "Enemy Window",
-			getBounds: () =>
-				new Phaser.Geom.Rectangle(
+			name: "Enemy Area",
+			getBounds: () => {
+				// Calculate bounds that encompass all enemy sprites
+				const enemyParty = this.stateManager.getEnemyParty();
+				if (enemyParty.length === 0) {
+					return new Phaser.Geom.Rectangle(
+						OUTER_MARGIN,
+						OUTER_MARGIN,
+						WINDOW_WIDTH,
+						80,
+					);
+				}
+				const spriteHeight = PORTRAIT_SIZE;
+				const topY = OUTER_MARGIN;
+				const bottomY = ENEMY_BASE_Y_POSITION + spriteHeight / 2;
+				return new Phaser.Geom.Rectangle(
 					OUTER_MARGIN,
-					OUTER_MARGIN,
+					topY,
 					WINDOW_WIDTH,
-					ENEMY_WINDOW_HEIGHT,
-				),
+					bottomY - topY,
+				);
+			},
 		});
 
 		// --- Player Status Window ---
@@ -460,6 +500,8 @@ export class BattleScene extends BaseScene {
 		// Create main battle UI layout
 		this.createBattleLayout();
 		this.createCharacterDisplay();
+		this.createSubjectBanner();
+		this.createNarrativeLog();
 	}
 
 	private createBattleLayout() {
@@ -505,17 +547,16 @@ export class BattleScene extends BaseScene {
 
 	private createCharacterDisplay() {
 		/* ---------------- Enemy Sprites -------------------------------------- */
-		const enemyWindowX = OUTER_MARGIN;
-		const enemyWindowY = OUTER_MARGIN;
 		const enemyParty = this.stateManager.getEnemyParty();
-		const enemySectionWidth = WINDOW_WIDTH / enemyParty.length;
+		const availableWidth = SCENE_WIDTH - OUTER_MARGIN * 2;
+		const enemySectionWidth = availableWidth / enemyParty.length;
 		enemyParty.forEach((enemy, index) => {
-			const sectionStartX = enemyWindowX + enemySectionWidth * index;
+			const sectionStartX = OUTER_MARGIN + enemySectionWidth * index;
 			const centerX = sectionStartX + enemySectionWidth / 2;
 
 			// Use BattleSprite instead of placeholder graphics
 			const spriteX = centerX;
-			const spriteY = enemyWindowY + 30;
+			const spriteY = ENEMY_BASE_Y_POSITION;
 
 			// From pineapple-pen/assets/enemies.json: goblin is 18, orc is not in this sheet. Use 2.
 			const frame = enemy.name === "Goblin" ? 18 : 2;
@@ -529,20 +570,20 @@ export class BattleScene extends BaseScene {
 			enemySprite.setScale(PORTRAIT_SIZE / 64); // Scale down 64x64 sprite
 			this.enemySprites.push(enemySprite);
 
-			// Name label (roughly centred)
-			new TextBlock(this, {
-				x: centerX - enemy.name.length * 4,
-				y: enemyWindowY + 2,
-				text: enemy.name,
-				fontKey: "everydayStandard",
-				color: Palette.WHITE.hex,
-				align: "center",
-			});
-
 			// Enemy HP Bar
 			const barWidth = 60;
 			const barX = centerX - barWidth / 2;
 			const barY = spriteY + PORTRAIT_SIZE / 2 + 4;
+
+			// Name label positioned above HP bar with 1px gap, left-aligned
+			new TextBlock(this, {
+				x: barX, // Left-aligned with HP bar
+				y: barY - 9, // 1px gap above HP bar (8px font height + 1px gap)
+				text: enemy.name,
+				fontKey: "capitalHill",
+				color: Palette.WHITE.hex,
+				align: "left",
+			});
 			const enemyHpBar = new ProgressBar(this, {
 				x: barX,
 				y: barY,
@@ -557,7 +598,7 @@ export class BattleScene extends BaseScene {
 		});
 
 		/* ---------------- Player Window (Ally Status Panel) --------------- */
-		const playerWindowY = SCENE_HEIGHT - 10 - PLAYER_WINDOW_HEIGHT; // 10px from bottom
+		const playerWindowY = SCENE_HEIGHT - 10 - PLAYER_WINDOW_HEIGHT; // 10px from bottom (original position)
 		this.playerWindowY = playerWindowY; // expose for other UI elements
 
 		// Create the ally status panel component - horizontally centered
@@ -572,15 +613,40 @@ export class BattleScene extends BaseScene {
 			characters: playerParty,
 		});
 		this.allyStatusPanel.create();
+	}
 
-		// Create the battle queue on the left side
-		this.battleQueue = new BattleQueue(this, {
-			x: OUTER_MARGIN,
-			y: OUTER_MARGIN + ENEMY_WINDOW_HEIGHT + VERTICAL_SPACING,
-			width: 120,
-			maxVisible: 6,
+	private createSubjectBanner() {
+		// Create a compact subject banner centered at the top for skill names
+		const bannerWidth = 200; // Much narrower
+		const bannerHeight = 24; // Much shorter - just enough for 1-2 lines
+
+		this.subjectBanner = new SubjectBanner(this, {
+			x: (SCENE_WIDTH - bannerWidth) / 2, // Center horizontally
+			y: OUTER_MARGIN + 20, // Slightly below the top edge
+			width: bannerWidth,
+			height: bannerHeight,
+			fontKey: "capitalHill", // Use Capital Hill font for prominence
 		});
-		this.battleQueue.create();
+
+		// Start hidden
+		this.subjectBanner.setAlpha(0);
+	}
+
+	private createNarrativeLog() {
+		// Position as footer at the very bottom of the screen
+		const logY = SCENE_HEIGHT - NARRATIVE_LOG_HEIGHT; // No margin - full footer
+
+		this.narrativeLog = new NarrativeLog(this, {
+			x: 0, // Full width footer
+			y: logY,
+			width: SCENE_WIDTH, // Full screen width
+			height: NARRATIVE_LOG_HEIGHT,
+			fontKey: "everydayStandard",
+			maxLines: 2, // Only show 2 lines in the footer
+		});
+
+		// Start hidden
+		this.narrativeLog.setAlpha(0);
 	}
 
 	private startBattle() {
@@ -673,57 +739,139 @@ export class BattleScene extends BaseScene {
 			this.stateManager.getAvailableSkills(),
 		);
 
-		// Build battle queue entries from the resolver's calculated queue
-		const queueEntries: QueueEntry[] = resolver.resolutionQueue.map(
-			(character) => ({
-				characterId: character.id,
-				characterName: character.name,
-				isPlayer: character.isPlayer,
-				actionName: character.isPlayer
-					? this.getActionDisplayName(character.selectedAction!)
-					: undefined, // Enemy actions hidden initially
-				actionIconFrame: character.isPlayer
-					? this.getActionIconFrame(character.selectedAction!)
-					: undefined,
-				isRevealed: character.isPlayer, // Player actions always revealed
-			}),
-		);
-
-		this.battleQueue?.setQueue(queueEntries);
-
-		// Use the new outcome-based resolution system
-
 		const initialCharacters = this.stateManager.getTurnOrder();
-		for await (const outcome of resolver.resolveActionsAsOutcomes(
-			initialCharacters,
-		)) {
-			// Handle each outcome event with dedicated handlers
-			await this.handleBattleOutcome(outcome);
 
-			// Track when we start a new action for queue management
-			if (outcome.type === "action_start") {
-				// Reveal enemy action in the queue UI
-				const character = this.stateManager.findCharacterById(outcome.sourceId);
-				if (character && !character.isPlayer) {
-					const actionName = this.getActionDisplayName(
-						character.selectedAction!,
-					);
-					const iconFrame = this.getActionIconFrame(character.selectedAction!);
-					this.battleQueue?.revealEnemyAction(
-						character.id,
-						actionName,
-						iconFrame,
-					);
+		// Reset queue state
+		this.outcomeQueue = [];
+		this.isStreamingComplete = false;
+
+		// Start concurrent processes
+		const streamingPromise = this.streamOutcomesToQueue(
+			resolver,
+			initialCharacters,
+		);
+		const processingPromise = this.processOutcomeQueue();
+
+		// Wait for both to complete
+		await Promise.all([streamingPromise, processingPromise]);
+
+		this.finishResolution();
+	}
+
+	/**
+	 * Stream outcomes from the resolver into the queue concurrently
+	 */
+	private async streamOutcomesToQueue(
+		resolver: BattleResolver,
+		initialCharacters: BattleCharacter[],
+	): Promise<void> {
+		try {
+			for await (const outcome of resolver.resolveActionsAsOutcomes(
+				initialCharacters,
+			)) {
+				this.outcomeQueue.push(outcome);
+			}
+		} catch (error) {
+			console.error("Error during outcome streaming:", error);
+		} finally {
+			this.isStreamingComplete = true;
+		}
+	}
+
+	/**
+	 * Process the outcome queue using "chunk-and-play" logic
+	 */
+	private async processOutcomeQueue(): Promise<void> {
+		while (this.outcomeQueue.length > 0 || !this.isStreamingComplete) {
+			// Wait for at least one outcome or streaming completion
+			if (this.outcomeQueue.length === 0) {
+				await new Promise((resolve) => setTimeout(resolve, 50)); // Small wait
+				continue;
+			}
+
+			// 1. Collect a "chunk" - events from topic to next topic or turn_end
+			const chunk: BattleOutcome[] = [];
+			let hasTopicEvent = false;
+
+			while (this.outcomeQueue.length > 0) {
+				const outcome = this.outcomeQueue.shift()!;
+				chunk.push(outcome);
+
+				if (outcome.type === "topic") {
+					hasTopicEvent = true;
+				}
+
+				// Chunk ends with turn_end or when we hit next topic (after having one)
+				if (outcome.type === "turn_end") {
+					break;
+				}
+				if (hasTopicEvent && outcome.type === "topic" && chunk.length > 1) {
+					// Put the new topic back and process current chunk
+					this.outcomeQueue.unshift(outcome);
+					chunk.pop();
+					break;
 				}
 			}
 
-			// Advance the UI queue when an action completes
-			if (outcome.type === "action_complete") {
-				this.battleQueue?.nextEntry();
+			if (chunk.length === 0) continue;
+
+			// 2. Present narrative text from the chunk
+			const narrativeEvents = chunk.filter(
+				(e) => e.type === "narrative",
+			) as NarrativeOutcome[];
+			if (narrativeEvents.length > 0) {
+				// Create character map for placeholder replacement
+				const allCharacters = [
+					...this.stateManager.getPlayerParty(),
+					...this.stateManager.getEnemyParty(),
+				];
+				const characterMap = createCharacterMap(allCharacters);
+
+				// Process each narrative message
+				for (const narrative of narrativeEvents) {
+					// Sanitize the narrative text
+					const sanitizedText = sanitizeNarrativeText(
+						narrative.text,
+						characterMap,
+					);
+
+					if (sanitizedText) {
+						// Show narrative log if it's hidden
+						if (this.narrativeLog && this.narrativeLog.alpha === 0) {
+							this.narrativeLog.show();
+						}
+
+						// Add sanitized text to narrative log
+						this.narrativeLog?.addMessage(sanitizedText);
+					}
+				}
+			}
+
+			// 3. Pause for anticipation
+			await new Promise((resolve) => setTimeout(resolve, 300));
+
+			// 4. Execute visual effects concurrently
+			const visualPromises: Promise<void>[] = [];
+			for (const outcome of chunk) {
+				if (outcome.type !== "narrative") {
+					const promise = this.handleBattleOutcome(outcome);
+					if (promise) {
+						visualPromises.push(promise);
+					}
+				}
+			}
+
+			// 5. Wait for all visual effects to complete
+			await Promise.all(visualPromises);
+
+			// 6. Pause for reaction
+			await new Promise((resolve) => setTimeout(resolve, 500));
+
+			// 7. Check if this was the final chunk
+			if (chunk.some((e) => e.type === "turn_end")) {
+				break;
 			}
 		}
-
-		this.finishResolution();
 	}
 
 	/**
@@ -747,8 +895,16 @@ export class BattleScene extends BaseScene {
 				return this.onStatusChange(outcome);
 			case "action_complete":
 				return this.onActionComplete(outcome);
+			case "topic":
+				return this.onTopic(outcome);
+			case "narrative":
+				// Narrative events are handled in processOutcomeQueue, skip here
+				return Promise.resolve();
+			case "turn_end":
+				return this.onTurnEnd(outcome);
 			default:
 				console.warn("Unhandled battle outcome type:", outcome);
+				return Promise.resolve();
 		}
 	}
 
@@ -765,7 +921,7 @@ export class BattleScene extends BaseScene {
 
 		console.log(`${character.name} starts ${outcome.actionType}`);
 
-		// Flash the character performing the action
+		// Return promise that resolves when flash animation completes
 		if (character.isPlayer) {
 			const characterBounds = this.allyStatusPanel?.getCharacterSectionBounds(
 				character.id,
@@ -775,11 +931,16 @@ export class BattleScene extends BaseScene {
 				flash.fillStyle(Palette.WHITE.num, 0.5);
 				flash.fillRectShape(characterBounds);
 				flash.setDepth(150);
-				this.tweens.add({
-					targets: flash,
-					alpha: { from: 0.5, to: 0 },
-					duration: 300,
-					onComplete: () => flash.destroy(),
+				return new Promise<void>((resolve) => {
+					this.tweens.add({
+						targets: flash,
+						alpha: { from: 0.5, to: 0 },
+						duration: 300,
+						onComplete: () => {
+							flash.destroy();
+							resolve();
+						},
+					});
 				});
 			}
 		} else {
@@ -787,12 +948,13 @@ export class BattleScene extends BaseScene {
 				.getEnemyParty()
 				.findIndex((e) => e.id === character.id);
 			if (enemyIndex !== -1 && this.enemySprites[enemyIndex]) {
+				// Flash animation promise handled by BattleSprite flash method
 				this.enemySprites[enemyIndex].flash();
 			}
 		}
 
-		// Small delay for action start feedback
-		return new Promise((resolve) => this.time.delayedCall(200, resolve));
+		// Default delay for action start feedback
+		return new Promise((resolve) => setTimeout(resolve, 200));
 	}
 
 	/**
@@ -838,7 +1000,7 @@ export class BattleScene extends BaseScene {
 			this.cameras.main.shake(150, 0.005);
 		}
 
-		return new Promise((resolve) => this.time.delayedCall(300, resolve));
+		return new Promise((resolve) => setTimeout(resolve, 300));
 	}
 
 	/**
@@ -872,7 +1034,7 @@ export class BattleScene extends BaseScene {
 		this.updatePlayerDisplay();
 		this.updateEnemyDisplay();
 
-		return new Promise((resolve) => this.time.delayedCall(300, resolve));
+		return new Promise((resolve) => setTimeout(resolve, 300));
 	}
 
 	/**
@@ -905,7 +1067,7 @@ export class BattleScene extends BaseScene {
 		// Update displays to show MP changes
 		this.updatePlayerDisplay();
 
-		return new Promise((resolve) => this.time.delayedCall(150, resolve));
+		return new Promise((resolve) => setTimeout(resolve, 150));
 	}
 
 	/**
@@ -966,7 +1128,7 @@ export class BattleScene extends BaseScene {
 				break;
 		}
 
-		return new Promise((resolve) => this.time.delayedCall(400, resolve));
+		return new Promise((resolve) => setTimeout(resolve, 400));
 	}
 
 	/**
@@ -982,7 +1144,7 @@ export class BattleScene extends BaseScene {
 		}
 
 		// Small delay before next action
-		return new Promise((resolve) => this.time.delayedCall(100, resolve));
+		return new Promise((resolve) => setTimeout(resolve, 100));
 	}
 
 	/**
@@ -1055,57 +1217,20 @@ export class BattleScene extends BaseScene {
 		console.log("Finishing resolution phase...");
 		this.stateManager.setResolvingActions(false);
 
+		// Clear all character highlighting after resolution
+		this.clearActiveCharacterVisuals();
+		this.allyStatusPanel?.setActiveCharacter(null);
+
 		// Check for battle end conditions
 		if (this.checkBattleEnd()) {
 			return;
 		}
 
-		// Hide the battle queue with a brief delay for visual feedback
+		// Start next turn with a brief delay for visual feedback
 		this.time.delayedCall(1000, () => {
-			this.battleQueue?.setQueue([]);
-			console.log("Battle queue cleared, starting next turn...");
-
-			// Start next turn
+			console.log("Starting next turn...");
 			this.startNextTurn();
 		});
-	}
-
-	private getActionDisplayName(action: BattleAction): string {
-		switch (action.type) {
-			case ActionType.ATTACK:
-				return "Attack";
-			case ActionType.DEFEND:
-				return "Defend";
-			case ActionType.SKILL: {
-				const skill = this.stateManager
-					.getAvailableSkills()
-					.find((s) => s.id === action.skillId);
-				return skill?.name || "Skill";
-			}
-			case ActionType.ITEM:
-				return "Item";
-			default:
-				return "Action";
-		}
-	}
-
-	private getActionIconFrame(action: BattleAction): number {
-		switch (action.type) {
-			case ActionType.ATTACK:
-				return 0;
-			case ActionType.DEFEND:
-				return 12;
-			case ActionType.SKILL: {
-				const skillIndex = this.stateManager
-					.getAvailableSkills()
-					.findIndex((s) => s.id === action.skillId);
-				return 24 + (skillIndex >= 0 ? skillIndex : 0);
-			}
-			case ActionType.ITEM:
-				return 36;
-			default:
-				return 0;
-		}
 	}
 
 	private updatePlayerDisplay() {
@@ -1167,6 +1292,52 @@ export class BattleScene extends BaseScene {
 
 		// Start new turn
 		this.processNextCharacter();
+	}
+
+	/**
+	 * Handler for topic events - highlights the active character and displays subject banner
+	 */
+	private async onTopic(outcome: {
+		type: "topic";
+		characterId: string;
+		subject?: string;
+	}): Promise<void> {
+		// First, pause 300ms with nothing happening at all
+		await new Promise((resolve) => setTimeout(resolve, 300));
+
+		const character = this.stateManager.findCharacterById(outcome.characterId);
+		if (character) {
+			console.log(`Topic: ${character.name} is now active`);
+			this.updateActiveCharacterVisuals(character);
+
+			// Display subject in banner if provided
+			if (outcome.subject && this.subjectBanner) {
+				this.subjectBanner.setSubject(outcome.subject);
+			}
+		}
+
+		// No additional delay after displaying
+		return Promise.resolve();
+	}
+
+	/**
+	 * Handler for turn end events - signals the end of resolution
+	 */
+	private async onTurnEnd(_outcome: { type: "turn_end" }): Promise<void> {
+		console.log("Turn resolution complete");
+
+		// Clear active character highlighting
+		this.clearActiveCharacterVisuals();
+		this.allyStatusPanel?.setActiveCharacter(null);
+
+		// Hide the subject banner and log after a delay
+		setTimeout(() => {
+			this.subjectBanner?.hide();
+			this.narrativeLog?.hide();
+		}, 2000);
+
+		// Small delay before finishing resolution
+		return new Promise((resolve) => setTimeout(resolve, 500));
 	}
 
 	update(time: number, delta: number): void {

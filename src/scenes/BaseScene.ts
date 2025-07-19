@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import animPredefs from "../assets/anims.toml";
+import animPredefs from "../assets/data/anims.toml";
 import { Anim, type EmitterConfig } from "../base/ps";
 import { Palette } from "../palette";
 import { FocusManager } from "../ui/state/FocusManager";

@@ -30,6 +30,20 @@ pnpm check   # Format + lint + auto-fix in one command
 ```
 
 ALWAYS use src/palette.ts for colors. Anything outside the palette is strongly discouraged.
+
+### Available Palette Colors
+
+```typescript
+Palette.BLACK, Palette.DARK_PURPLE, Palette.DARK_BURGUNDY, Palette.BROWN,
+Palette.RUST, Palette.ORANGE, Palette.SAND, Palette.BEIGE, Palette.YELLOW,
+Palette.LIME, Palette.GREEN, Palette.DARK_GREEN, Palette.OLIVE, Palette.DARK_OLIVE,
+Palette.DARK_TEAL, Palette.INDIGO, Palette.BLUE, Palette.BRIGHT_BLUE, Palette.SKY_BLUE,
+Palette.CYAN, Palette.LIGHT_BLUE, Palette.WHITE, Palette.GRAY, Palette.DARK_GRAY,
+Palette.CHARCOAL, Palette.DARK_CHARCOAL, Palette.PURPLE, Palette.RED, Palette.DARK_RED,
+Palette.PINK, Palette.MAGENTA, Palette.YELLOW_GREEN, Palette.GOLD
+```
+
+Use `Palette.COLOR_NAME.hex` for hex strings, `Palette.COLOR_NAME.num` for numeric values, or just `Palette.COLOR_NAME` where string coercion applies.
 ALWAYS run `pnpm build` after several large changes (or at the conclusion) to double check no type errors exist.
 ALWAYS run `pnpm check` to automatically fix basic code issues (unused imports, formatting, etc.) before committing changes.
 
@@ -88,6 +102,9 @@ ALWAYS run `pnpm check` to automatically fix basic code issues (unused imports, 
 - `src/scenes/ShopScene.ts` - UI component demo and focus management
 - `src/scenes/GameScene.ts` - Card game mechanics and font demo
 - `src/scenes/AnimationDemoScene.ts` - Animation and effects showcase
+- `src/scenes/SocietyScene.ts` - Society/social mechanics scene
+- `src/scenes/BattleResolver.ts` - Battle outcome resolution logic
+- `src/scenes/Pawn.ts` - Character/pawn movement and grid positioning
 - `src/scenes/BattleFocusConfig.ts` - Battle scene focus state machine config
 - `src/scenes/AnimationDemoFocusConfig.ts` - Animation demo focus config
 
@@ -106,8 +123,16 @@ ALWAYS run `pnpm check` to automatically fix basic code issues (unused imports, 
 - `src/base/ps.ts` - Particle animation system
 - `src/base/ps_palette.ts` - Particle system color palette
 - `src/base/BattleSprite.ts` - Battle sprite with flash effects
-- `src/base/ShaderUtils.ts` - Shader utilities (unused)
-- `src/base/BrightnessTintShader.ts` - Brightness/tint shader (unused)
+- `src/base/ShaderUtils.ts` - Shared GLSL utilities including OKLab color space conversion
+
+**Game Systems:**
+- `src/battle/` - Battle state management and type definitions separate from scenes
+- `src/dice/` - Dice rolling system with lexer/parser (simple `evaluate(source, context)` interface)
+- `src/grid/` - Grid utilities and positioning logic
+- `src/ai/` - AI todo management tools
+
+**Shaders & Effects:**
+- `src/shaders/` - Additional shader effects (Hover3D, NoisePattern)
 
 **Utilities:**
 - `src/color-utils.ts` - Color manipulation utilities
@@ -137,6 +162,20 @@ ALWAYS run `pnpm check` to automatically fix basic code issues (unused imports, 
 - Text rendering includes advanced compression logic for fitting text on small cards
 - **Pixel Perfect Rule**: Avoid scaling sprites/images when pixel perfectness is important. Use alpha/position animations instead of scale animations for UI elements to maintain crisp pixel art
 - NEVER deprecate things. Just remove things. We aren't doing public APIs.
+
+## Common Pitfalls & Gotchas
+
+**Shader Registration**: Shaders must be registered with the renderer before applying to game objects. Always check WebGL availability and wrap in try-catch blocks.
+
+**Focus Management**: Multiple focus systems can conflict (FocusManager, GenericFocusStateMachine, scene-specific navigation). Ensure only one system manages focus per UI context.
+
+**Scene Lifecycle**: Scenes accumulate state across transitions. Clean up timers, event listeners, and object references in scene shutdown to prevent memory leaks.
+
+**Card Zone Management**: Card positioning depends on zone state. Verify zone exists before position calculations to avoid runtime errors.
+
+**Font Loading**: Fonts load asynchronously. Ensure fonts are loaded before creating text objects, or use fallbacks.
+
+**Color Consistency**: Always use `src/palette.ts` colors. Direct hex colors outside the palette break the visual consistency and dithering effects.
 
 ## General Coding Guidelines (Reminders)
 

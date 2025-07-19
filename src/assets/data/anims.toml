@@ -450,3 +450,25 @@ life = [1.5, 1]
 colors = [11,11, 11, 11, 14, 14, 14]
 duration = 1
 burst = [true, 30]
+
+[[anims.gauge_damage]]
+frequency = 30
+max_p = 20
+area = [5, 5]
+size = [2, 0, 1, 0]
+speed = [30, 10, 20, 10]
+life = [0.3, 0.2]
+colors = [2, 8, 9]
+burst = [true, 8]
+angle = [0, 360]
+
+[[anims.gauge_heal]]
+frequency = 25
+max_p = 15
+area = [5, 5]
+size = [2, 0, 1, 0]
+speed = [20, 5, 15, 5]
+life = [0.4, 0.3]
+colors = [11, 12, 14]
+burst = [true, 6]
+angle = [90, 45]

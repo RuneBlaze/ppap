@@ -1,7 +1,11 @@
 import Phaser from "phaser";
 import { Palette } from "../palette";
 import { Popup } from "../ui/primitives/Popup";
-import type { IlluminationTarget } from "./ps";
+
+interface IlluminationTarget {
+	sprite: Phaser.GameObjects.Sprite;
+	updateIllumination(intensity: number): void;
+}
 
 export class BattleSprite
 	extends Phaser.GameObjects.Sprite
@@ -30,12 +34,6 @@ export class BattleSprite
 
 	updateIllumination(intensity: number): void {
 		this.currentIntensity = this.baseIntensity + intensity;
-
-		// if (this.tintShader) {
-		//   // Use shader for smooth white brightening
-		//   this.tintShader.tintIntensity = Math.min(intensity * 0.01, 1.0);
-		//   this.tintShader.tintColor = [1.0, 1.0, 1.0]; // White tint for brightening
-		// }
 	}
 
 	triggerFlash(_intensity: number = 1.0, duration: number = 40): void {

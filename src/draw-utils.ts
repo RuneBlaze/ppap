@@ -1,4 +1,6 @@
 // Icon spritesheet is now loaded by BootScene
+
+import { OKLAB_GLSL_SNIPPET } from "./base/ShaderUtils";
 import { ColorUtils } from "./color-utils";
 import { type FontKey, fonts, getFontStyle } from "./fonts";
 import { Palette } from "./palette";
@@ -59,31 +61,7 @@ uniform vec3      paletteColors[32];
 
 varying vec2 outTexCoord;
 
-/* -------- sRGB → OKLab conversion utilities ---------------------------- */
-vec3 srgbToLinear(vec3 c)
-{
-    vec3 cutoff = vec3(0.04045);
-    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(cutoff, c));
-}
-
-vec3 rgbToOklab(vec3 c)
-{
-    vec3 lrgb = srgbToLinear(c);
-
-    // linear RGB → LMS
-    float l = 0.4122214708 * lrgb.r + 0.5363325363 * lrgb.g + 0.0514459929 * lrgb.b;
-    float m = 0.2119034982 * lrgb.r + 0.6806995451 * lrgb.g + 0.1073969566 * lrgb.b;
-    float s = 0.0883024619 * lrgb.r + 0.2817188376 * lrgb.g + 0.6299787005 * lrgb.b;
-
-    // cube-root and final OKLab transform
-    vec3 lms = vec3(pow(l, 1.0/3.0), pow(m, 1.0/3.0), pow(s, 1.0/3.0));
-
-    return vec3(
-        0.2104542553 * lms.x + 0.7936177850 * lms.y - 0.0040720468 * lms.z,
-        1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z,
-        0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z
-    );
-}
+${OKLAB_GLSL_SNIPPET}
 
 /* -------- nearest-colour quantiser in OKLab space ----------------------- */
 vec3 quantizeToNearestPalette(vec3 c)

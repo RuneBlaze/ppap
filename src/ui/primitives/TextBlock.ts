@@ -9,6 +9,8 @@ export interface TextBlockOptions {
 	color?: string;
 	wordWrapWidth?: number;
 	align?: "left" | "right" | "center";
+	strokeColor?: string;
+	strokeWidth?: number;
 }
 
 /**
@@ -27,6 +29,11 @@ export class TextBlock extends Phaser.GameObjects.Text {
 
 		if (options.wordWrapWidth) {
 			style.wordWrap = { width: options.wordWrapWidth, useAdvancedWrap: true };
+		}
+
+		if (options.strokeColor && options.strokeWidth) {
+			style.stroke = options.strokeColor;
+			style.strokeThickness = options.strokeWidth;
 		}
 
 		super(scene, options.x, options.y, options.text, style);

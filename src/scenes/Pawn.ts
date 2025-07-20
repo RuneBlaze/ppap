@@ -248,7 +248,7 @@ export class Pawn extends Phaser.GameObjects.Container {
 		};
 	}
 
-	private isPositionOccupied(gridX: number, gridY: number): boolean {
+	private isPositionOccupied(_gridX: number, _gridY: number): boolean {
 		// Check if any other pawn is at this position
 		// This would need to be implemented by the scene managing multiple pawns
 		return false; // For now, allow any position
@@ -350,7 +350,7 @@ export class Pawn extends Phaser.GameObjects.Container {
 					"flipProgress",
 					this.shaderUniforms.flipProgress,
 				);
-			} catch (e) {
+			} catch (_e) {
 				// Shader might not be ready or WebGL unavailable – fail silently
 			}
 		}

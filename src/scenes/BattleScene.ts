@@ -17,6 +17,7 @@ import { ProgressBar } from "../ui/primitives/ProgressBar";
 import { SubjectBanner } from "../ui/primitives/SubjectBanner";
 import { TextBlock } from "../ui/primitives/TextBlock";
 import { GenericFocusStateMachine } from "../ui/state/GenericFocusStateMachine";
+import { sleep } from "../utils/async";
 import {
 	createCharacterMap,
 	sanitizeNarrativeText,
@@ -159,7 +160,8 @@ export class BattleScene extends BaseScene {
 		const anchorX = sectionX + playerSectionWidth / 2;
 
 		// 2. Show action menu above active character
-		this.showActionMenu(anchorX, this.playerWindowY - 60);
+		// Position it relative to the bottom of the screen, above the player window
+		this.showActionMenu(anchorX, SCENE_HEIGHT - PLAYER_WINDOW_HEIGHT - 60);
 	}
 
 	private updateActiveCharacterVisuals(character: BattleCharacter) {
@@ -548,14 +550,18 @@ export class BattleScene extends BaseScene {
 	private createCharacterDisplay() {
 		/* ---------------- Enemy Sprites -------------------------------------- */
 		const enemyParty = this.stateManager.getEnemyParty();
-		const availableWidth = SCENE_WIDTH - OUTER_MARGIN * 2;
-		const enemySectionWidth = availableWidth / enemyParty.length;
-		enemyParty.forEach((enemy, index) => {
-			const sectionStartX = OUTER_MARGIN + enemySectionWidth * index;
-			const centerX = sectionStartX + enemySectionWidth / 2;
+		const enemySpriteWidth = PORTRAIT_SIZE; // Assuming enemy sprites are also PORTRAIT_SIZE wide after scaling
+		const enemyMargin = 16; // Margin between enemy sprites
+		const totalEnemiesWidth =
+			enemyParty.length * enemySpriteWidth +
+			(enemyParty.length - 1) * enemyMargin;
+		const startX = (SCENE_WIDTH - totalEnemiesWidth) / 2;
 
-			// Use BattleSprite instead of placeholder graphics
-			const spriteX = centerX;
+		enemyParty.forEach((enemy, index) => {
+			const spriteX =
+				startX +
+				index * (enemySpriteWidth + enemyMargin) +
+				enemySpriteWidth / 2;
 			const spriteY = ENEMY_BASE_Y_POSITION;
 
 			// From pineapple-pen/assets/enemies.json: goblin is 18, orc is not in this sheet. Use 2.
@@ -572,12 +578,11 @@ export class BattleScene extends BaseScene {
 
 			// Enemy HP Bar
 			const barWidth = 60;
-			const barX = centerX - barWidth / 2;
 			const barY = spriteY + PORTRAIT_SIZE / 2 + 4;
 
 			// Name label positioned above HP bar with 1px gap, left-aligned
 			new TextBlock(this, {
-				x: barX, // Left-aligned with HP bar
+				x: spriteX - barWidth / 2, // Left-aligned with HP bar
 				y: barY - 9, // 1px gap above HP bar (8px font height + 1px gap)
 				text: enemy.name,
 				fontKey: "capitalHill",
@@ -585,7 +590,7 @@ export class BattleScene extends BaseScene {
 				align: "left",
 			});
 			const enemyHpBar = new ProgressBar(this, {
-				x: barX,
+				x: spriteX - barWidth / 2,
 				y: barY,
 				width: barWidth,
 				height: 6,
@@ -598,7 +603,7 @@ export class BattleScene extends BaseScene {
 		});
 
 		/* ---------------- Player Window (Ally Status Panel) --------------- */
-		const playerWindowY = SCENE_HEIGHT - 10 - PLAYER_WINDOW_HEIGHT; // 10px from bottom (original position)
+		const playerWindowY = SCENE_HEIGHT - PLAYER_WINDOW_HEIGHT - 1; // 1px from bottom
 		this.playerWindowY = playerWindowY; // expose for other UI elements
 
 		// Create the ally status panel component - horizontally centered
@@ -785,7 +790,7 @@ export class BattleScene extends BaseScene {
 		while (this.outcomeQueue.length > 0 || !this.isStreamingComplete) {
 			// Wait for at least one outcome or streaming completion
 			if (this.outcomeQueue.length === 0) {
-				await new Promise((resolve) => setTimeout(resolve, 50)); // Small wait
+				await sleep(50); // Small wait
 				continue;
 			}
 
@@ -848,7 +853,7 @@ export class BattleScene extends BaseScene {
 			}
 
 			// 3. Pause for anticipation
-			await new Promise((resolve) => setTimeout(resolve, 300));
+			await sleep(300);
 
 			// 4. Execute visual effects concurrently
 			const visualPromises: Promise<void>[] = [];
@@ -865,9 +870,13 @@ export class BattleScene extends BaseScene {
 			await Promise.all(visualPromises);
 
 			// 6. Pause for reaction
-			await new Promise((resolve) => setTimeout(resolve, 500));
+			await sleep(500);
 
-			// 7. Check if this was the final chunk
+			// 7. Topic cleanup: fade out banner and pause
+			this.subjectBanner?.hide();
+			await sleep(500);
+
+			// 8. Check if this was the final chunk
 			if (chunk.some((e) => e.type === "turn_end")) {
 				break;
 			}
@@ -954,7 +963,7 @@ export class BattleScene extends BaseScene {
 		}
 
 		// Default delay for action start feedback
-		return new Promise((resolve) => setTimeout(resolve, 200));
+		return sleep(200);
 	}
 
 	/**
@@ -1000,7 +1009,7 @@ export class BattleScene extends BaseScene {
 			this.cameras.main.shake(150, 0.005);
 		}
 
-		return new Promise((resolve) => setTimeout(resolve, 300));
+		return sleep(300);
 	}
 
 	/**
@@ -1034,7 +1043,7 @@ export class BattleScene extends BaseScene {
 		this.updatePlayerDisplay();
 		this.updateEnemyDisplay();
 
-		return new Promise((resolve) => setTimeout(resolve, 300));
+		return sleep(300);
 	}
 
 	/**
@@ -1067,7 +1076,7 @@ export class BattleScene extends BaseScene {
 		// Update displays to show MP changes
 		this.updatePlayerDisplay();
 
-		return new Promise((resolve) => setTimeout(resolve, 150));
+		return sleep(150);
 	}
 
 	/**
@@ -1128,7 +1137,7 @@ export class BattleScene extends BaseScene {
 				break;
 		}
 
-		return new Promise((resolve) => setTimeout(resolve, 400));
+		return sleep(400);
 	}
 
 	/**
@@ -1144,7 +1153,7 @@ export class BattleScene extends BaseScene {
 		}
 
 		// Small delay before next action
-		return new Promise((resolve) => setTimeout(resolve, 100));
+		return sleep(100);
 	}
 
 	/**
@@ -1303,7 +1312,7 @@ export class BattleScene extends BaseScene {
 		subject?: string;
 	}): Promise<void> {
 		// First, pause 300ms with nothing happening at all
-		await new Promise((resolve) => setTimeout(resolve, 300));
+		await sleep(300);
 
 		const character = this.stateManager.findCharacterById(outcome.characterId);
 		if (character) {
@@ -1330,14 +1339,13 @@ export class BattleScene extends BaseScene {
 		this.clearActiveCharacterVisuals();
 		this.allyStatusPanel?.setActiveCharacter(null);
 
-		// Hide the subject banner and log after a delay
+		// Hide the narrative log after a delay
 		setTimeout(() => {
-			this.subjectBanner?.hide();
 			this.narrativeLog?.hide();
 		}, 2000);
 
 		// Small delay before finishing resolution
-		return new Promise((resolve) => setTimeout(resolve, 500));
+		return sleep(500);
 	}
 
 	update(time: number, delta: number): void {

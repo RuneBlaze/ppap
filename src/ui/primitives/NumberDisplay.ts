@@ -60,8 +60,6 @@ export class NumberDisplay extends TextBlock {
 			case "cycle":
 				this.animateCycle(startValue, newValue, duration);
 				break;
-
-			case "count":
 			default:
 				this.animateCount(startValue, newValue, duration);
 				break;

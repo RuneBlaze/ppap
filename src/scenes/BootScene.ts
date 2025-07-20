@@ -2,8 +2,6 @@ import Phaser from "phaser";
 import {
 	ImageKeys,
 	Images,
-	OtherAssets,
-	OtherKeys,
 	SpritesheetKeys,
 	Spritesheets,
 } from "@/assets/AssetManifest";

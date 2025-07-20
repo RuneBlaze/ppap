@@ -23,7 +23,7 @@ export function createTodoTool(initialTodos?: string[]) {
 	if (initialTodos && initialTodos.length > 0) {
 		todos = initialTodos
 			.filter((body) => body && body.trim() !== "") // Filter out empty strings
-			.map((body, index) => ({
+			.map((body, _index) => ({
 				id: nextId++,
 				body: body.trim(),
 				completed: false,

@@ -88,7 +88,7 @@ export class BattleStateManager {
 
 	applyHealing(characterId: string, amount: number) {
 		const character = this.findCharacterById(characterId);
-		if (character && character.isAlive) {
+		if (character?.isAlive) {
 			character.currentHP = Math.min(
 				character.maxHP,
 				character.currentHP + amount,

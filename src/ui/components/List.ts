@@ -188,11 +188,11 @@ export class List extends Container {
 	}
 
 	public getCurrentIndex(): number {
-		return this.nav["currentIndex"]; // Access private property
+		return this.nav.currentIndex; // Access private property
 	}
 
 	public setCurrentIndex(enabledIndex: number) {
-		this.nav["currentIndex"] = enabledIndex;
+		this.nav.currentIndex = enabledIndex;
 		this.handleSelectionChange(enabledIndex);
 	}
 

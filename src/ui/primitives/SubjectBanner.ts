@@ -63,7 +63,7 @@ export class SubjectBanner extends Phaser.GameObjects.Container {
 
 		// Truncate if too long to fit in compact banner
 		if (cleanText.length > 20) {
-			cleanText = cleanText.substring(0, 17) + "...";
+			cleanText = `${cleanText.substring(0, 17)}...`;
 		}
 
 		// Clear existing text

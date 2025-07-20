@@ -5,10 +5,6 @@ import { Palette } from "../../palette";
  * It's a semi-transparent filled rectangle.
  */
 export class SelectionHighlight extends Phaser.GameObjects.Graphics {
-	constructor(scene: Phaser.Scene) {
-		super(scene);
-	}
-
 	/**
 	 * Moves and resizes the highlight to fit a target game object.
 	 * @param target The target game object to highlight.

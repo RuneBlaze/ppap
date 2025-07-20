@@ -78,6 +78,7 @@ To maintain a clear, organized, and asynchronous workflow, we use GitHub Issues 
 ### The Process
 
 1.  **Architect (Gemini):** When a new feature, refactor, or bugfix is requested, Gemini's role is to first understand the request in the context of the existing codebase. This involves reading relevant files, analyzing the current architecture, and identifying potential impacts.
+    *Important Note:* If a request is tagged as "arch discussion", no code should be written. The focus should remain on high-level architectural guidance and discussion.
 2.  **Issue Creation (Gemini):** After analysis, Gemini will create a GitHub issue. To avoid shell injection issues with complex markdown, the issue body will be written to a temporary file and then passed to the `gh` CLI.
     
     First, write the body to a temp file:

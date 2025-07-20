@@ -85,7 +85,7 @@ function colorizeInput(input: string): string {
 		}
 
 		return result;
-	} catch (error) {
+	} catch (_error) {
 		// If tokenization fails, return original input
 		return input;
 	}
@@ -132,7 +132,7 @@ function printExamples() {
 
 	for (const { desc, expr } of examples) {
 		console.log(
-			`  ${colorize(desc + ":", "yellow")} ${colorize(expr, "white")}`,
+			`  ${colorize(`${desc}:`, "yellow")} ${colorize(expr, "white")}`,
 		);
 	}
 	console.log("");
@@ -287,7 +287,7 @@ async function startRepl() {
 	});
 
 	// Handle keypress events for real-time syntax highlighting
-	process.stdin.on("keypress", (str, key) => {
+	process.stdin.on("keypress", (_str, key) => {
 		if (!key) return;
 
 		// Handle special keys
@@ -328,7 +328,7 @@ async function startRepl() {
 	if (process.stdin.isTTY) {
 		process.stdin.setRawMode(true);
 	}
-	require("readline").emitKeypressEvents(process.stdin);
+	require("node:readline").emitKeypressEvents(process.stdin);
 
 	// Start the prompt
 	rl.prompt();

@@ -82,7 +82,7 @@ export class NarrativeBanner extends Phaser.GameObjects.Container {
 
 		for (let i = this.textLines.length - 1; i >= 0; i--) {
 			const textObj = this.textLines[i];
-			if (textObj && textObj.active) {
+			if (textObj?.active) {
 				textObj.setY(currentY);
 				currentY += lineHeight;
 
@@ -135,7 +135,7 @@ export class NarrativeBanner extends Phaser.GameObjects.Container {
 	 */
 	public clear(): void {
 		for (const textObj of this.textLines) {
-			if (textObj && textObj.active) {
+			if (textObj?.active) {
 				this.remove(textObj);
 				textObj.destroy();
 			}

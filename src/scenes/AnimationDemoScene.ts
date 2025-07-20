@@ -1,4 +1,3 @@
-import Phaser from "phaser";
 import animPredefs from "../assets/data/anims.toml";
 import { BattleSprite } from "../base/BattleSprite";
 import type { Anim } from "../base/ps";
@@ -336,7 +335,7 @@ export class AnimationDemoScene extends BaseScene {
 		super.update(time, delta);
 
 		// Check if current animation is dead and restart it for looping
-		if (this.currentAnim && this.currentAnim.dead && this.currentAnimation) {
+		if (this.currentAnim?.dead && this.currentAnimation) {
 			const centerX = 213;
 			const centerY = 120;
 			this.startLoopingAnimation(this.currentAnimation, centerX, centerY);

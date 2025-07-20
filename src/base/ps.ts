@@ -124,10 +124,10 @@ class Particle {
 		};
 
 		// Pick colour / sprite
-		if (params.sprites && params.sprites.length) {
+		if (params.sprites?.length) {
 			this.sprite = params.sprites[Math.floor(rand(params.sprites.length))];
 		}
-		if (params.colours && params.colours.length) {
+		if (params.colours?.length) {
 			this.colour = params.colours[Math.floor(rand(params.colours.length))];
 		}
 	}
@@ -344,7 +344,7 @@ export class Anim {
 		this.timer += dt * 60; // convert to frames equivalent
 
 		while (this.queued.length && this.queued[0].delay <= this.timer) {
-			this.emitters.push(this.queued.shift()!.emitter);
+			this.emitters.push(this.queued.shift()?.emitter);
 		}
 
 		let allDead = true;
@@ -394,11 +394,11 @@ export class Anim {
 		const getGraphicsForColour = (
 			paletteIdx: number,
 		): Phaser.GameObjects.Graphics => {
-			let g = gMap!.get(paletteIdx);
+			let g = gMap?.get(paletteIdx);
 			if (!g) {
 				g = scene.add.graphics();
 				g.setDepth(9500);
-				gMap!.set(paletteIdx, g);
+				gMap?.set(paletteIdx, g);
 			}
 			return g;
 		};

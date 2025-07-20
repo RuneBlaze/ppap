@@ -12,10 +12,6 @@ export abstract class BaseScene extends Phaser.Scene {
 	// Dithering toggle state
 	private ditheringEnabled: boolean = true;
 
-	constructor(key: string) {
-		super(key);
-	}
-
 	preload() {
 		this.preloadSceneAssets();
 	}

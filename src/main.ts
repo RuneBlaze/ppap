@@ -118,7 +118,7 @@ navContainer.style.cssText = `
 `;
 
 const gameContainer = document.getElementById("game-container");
-if (gameContainer && gameContainer.parentNode) {
+if (gameContainer?.parentNode) {
 	gameContainer.parentNode.insertBefore(
 		navContainer,
 		gameContainer.nextSibling,

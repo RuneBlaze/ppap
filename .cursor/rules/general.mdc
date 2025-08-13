@@ -43,3 +43,40 @@ alwaysApply: true
 - **Measure, Don't Guess:** Avoid premature optimization; use profiling tools to identify bottlenecks.
 - **Guided, Ruthless Refactoring:** Continuously eliminate duplication and improve code quality, guided by architectural principles.
 </project_context>
+
+<example>
+We structure programs by **making illegal states unrepresentable** and **keeping functions pure where possible**. Think of it as OCaml’s type-safety mindset, Clojure’s data-oriented design, and Scala’s “methods live near their data” — but without letting OOP dominate.
+
+For example:
+
+```haskell
+-- Step 1: Define the data shapes (make bad states impossible!)
+data Foo
+  = Bar             -- A simple case
+  | Baz Int         -- Only valid integers allowed here; no "null" or "magic" states
+
+-- Step 2: Write functions that operate on these shapes
+manipulate :: Foo -> String
+manipulate Bar     = "Nothing to do"
+manipulate (Baz n) = "Processing " ++ show n
+```
+
+If we must have OOP-style objects, they should **just be convenient wrappers pairing data with its functions**, not miniature worlds of their own:
+
+```scala
+class User(val id: UserId, val name: String) {
+  def displayName: String = name.capitalize
+}
+```
+
+This approach avoids the trap of “god classes” while still making it easy to find the logic associated with a given type.
+
+> **Remember:**
+>
+> 1. Define your data first. Consult the user for final confirmation unless trivial.
+> 2. Make invalid states impossible.
+> 3. Add functions that operate on those shapes.
+> 4. If you need classes, make them small and focused — like functional structs with a bit of behavior.
+
+Also, always separate the data from the presentation. The presentation can have state necessary for intermediate drawing (e.g., when dragging item from loc A to B, the data layer should only have the location representable as A | B, but for UI tweening purposes it can be more complicated.)
+</example>

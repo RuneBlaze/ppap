@@ -1,6 +1,8 @@
 import Phaser from "phaser";
 import { Palette } from "@/palette";
 import { Grid, type Region } from "../grid/Grid";
+import { WorldState } from "@/state/WorldState";
+import type { WorldStateData } from "@/state/types";
 import { BaseScene } from "./BaseScene";
 import { Pawn } from "./Pawn";
 
@@ -15,6 +17,7 @@ export class SocietyScene extends BaseScene {
 		RIGHT: Phaser.Input.Keyboard.Key;
 	};
 	private pawns: Pawn[] = [];
+	private world!: WorldState;
 
 	constructor() {
 		super("SocietyScene");
@@ -29,7 +32,22 @@ export class SocietyScene extends BaseScene {
 		this.setupKeyboard();
 		this.createGridVisuals();
 		this.initializeTestRegions();
-		this.createPawns();
+
+		// Initialize world state with pawns from seed positions
+		const initialPawns = {
+			p1: { id: "p1", pos: { x: 0, y: 0 } },
+			p2: { id: "p2", pos: { x: 24, y: 0 } },
+			p3: { id: "p3", pos: { x: 120, y: 48 } },
+			p4: { id: "p4", pos: { x: 144, y: 48 } },
+			p5: { id: "p5", pos: { x: 240, y: 120 } },
+		} as const;
+		const stateData: WorldStateData = {
+			pawns: { ...initialPawns },
+			grid: this.grid,
+		};
+		this.world = new WorldState(stateData);
+
+		this.createPawnsFromState();
 	}
 
 	private setupKeyboard(): void {
@@ -83,29 +101,35 @@ export class SocietyScene extends BaseScene {
 		this.drawGridAndRegions(); // Redraw after updating regions
 	}
 
-	private createPawns(): void {
-		// Create several pawns at different positions
-		const pawnPositions = [
-			{ x: 0, y: 0, frame: 0 },
-			{ x: 24, y: 0, frame: 0 },
-			{ x: 120, y: 48, frame: 0 },
-			{ x: 144, y: 48, frame: 0 },
-			{ x: 240, y: 120, frame: 0 },
-		];
+	private createPawnsFromState(): void {
+		const gridSize = this.grid.getGridSize();
+		const state = this.world.getState();
+		this.pawns.forEach((p) => p.destroy());
+		this.pawns = [];
 
-		pawnPositions.forEach((pos) => {
-			const pawn = new Pawn(this, pos.x, pos.y, this.grid, pos.frame);
-
-			// Set up occupancy checker so pawns don't stack
-			pawn.setOccupancyChecker((x, y, excludePawn) => {
-				return this.pawns.some((p) => {
-					if (p === excludePawn) return false;
-					const pawnPos = p.getGridPosition();
-					return pawnPos.x === x && pawnPos.y === y;
-				});
+		this.pawns = Object.values(state.pawns).map((pawnState) => {
+			const pawn = new Pawn(this, {
+				id: pawnState.id,
+				intersectionX: pawnState.pos.x,
+				intersectionY: pawnState.pos.y,
+				gridSize,
+				portraitFrame: 0,
 			});
 
-			this.pawns.push(pawn);
+			pawn.on(
+				"moveRequested",
+				({ pawnId, to }: { pawnId: string; to: { x: number; y: number } }) => {
+					const tx = WorldState.buildPawnMove(pawnId, { x: to.x, y: to.y });
+					const result = this.world.commit(tx);
+					if (result.success) {
+						pawn.applyCommittedIntersection(to.x, to.y);
+					} else {
+						pawn.revertToCommitted();
+					}
+				},
+			);
+
+			return pawn;
 		});
 	}
 
@@ -114,58 +138,23 @@ export class SocietyScene extends BaseScene {
 		const gridSize = this.grid.getGridSize();
 
 		// Draw a large grid that extends beyond the viewport
-		const gridExtent = 2000; // Large enough grid area
+		// Ensure gridExtent is divisible by gridSize to maintain alignment invariant
+		const gridExtent = Math.ceil(2000 / gridSize) * gridSize; // Rounds up to nearest grid-aligned value
 
 		// Set line style for faded non-active grid lines
 		this.graphics.lineStyle(1, Palette.GRAY.num, 0.2);
 
 		// Draw non-active grid lines (sparse, faded)
 		for (let x = -gridExtent; x <= gridExtent; x += gridSize) {
-			this.drawSparseDottedLine(x, -gridExtent, x, gridExtent, true);
+			this.drawDottedLine(x, -gridExtent, x, gridExtent, true, 1, 4);
 		}
 
 		for (let y = -gridExtent; y <= gridExtent; y += gridSize) {
-			this.drawSparseDottedLine(-gridExtent, y, gridExtent, y, false);
+			this.drawDottedLine(-gridExtent, y, gridExtent, y, false, 1, 4);
 		}
 
 		// Draw regions
 		this.drawRegions();
-	}
-
-	private drawSparseDottedLine(
-		x1: number,
-		y1: number,
-		x2: number,
-		y2: number,
-		isVertical: boolean,
-	): void {
-		const dotLength = 1;
-		const gapLength = 4; // Much sparser than active regions
-		const segmentLength = dotLength + gapLength;
-
-		if (isVertical) {
-			const totalLength = Math.abs(y2 - y1);
-			const segments = Math.floor(totalLength / segmentLength);
-
-			for (let i = 0; i < segments; i++) {
-				const segmentY = y1 + i * segmentLength;
-				this.graphics.beginPath();
-				this.graphics.moveTo(x1, segmentY);
-				this.graphics.lineTo(x1, segmentY + dotLength);
-				this.graphics.strokePath();
-			}
-		} else {
-			const totalLength = Math.abs(x2 - x1);
-			const segments = Math.floor(totalLength / segmentLength);
-
-			for (let i = 0; i < segments; i++) {
-				const segmentX = x1 + i * segmentLength;
-				this.graphics.beginPath();
-				this.graphics.moveTo(segmentX, y1);
-				this.graphics.lineTo(segmentX + dotLength, y1);
-				this.graphics.strokePath();
-			}
-		}
 	}
 
 	private drawRegions(): void {
@@ -174,13 +163,12 @@ export class SocietyScene extends BaseScene {
 		const gridSize = this.grid.getGridSize();
 
 		for (const region of this.grid.getRegions()) {
-			// Draw simple rectangle for each region
-			const { minX, maxX, minY, maxY } = region.bounds;
-			const width = maxX - minX + gridSize;
-			const height = maxY - minY + gridSize;
-
-			this.graphics.fillRect(minX, minY, width, height);
-			this.graphics.strokeRect(minX, minY, width, height);
+			// Draw individual cells for each region using top-left intersection coordinates
+			for (const cellKey of region.cells) {
+				const [x, y] = cellKey.split(",").map(Number);
+				this.graphics.fillRect(x, y, gridSize, gridSize);
+				this.graphics.strokeRect(x, y, gridSize, gridSize);
+			}
 
 			// Draw active grid lines within the region
 			this.drawActiveGridLines(region);
@@ -196,12 +184,12 @@ export class SocietyScene extends BaseScene {
 
 		// Draw vertical lines
 		for (let x = minX; x <= maxX + gridSize; x += gridSize) {
-			this.drawDottedLine(x, minY, x, maxY + gridSize, true, this.graphics);
+			this.drawDottedLine(x, minY, x, maxY + gridSize, true, 2, 3);
 		}
 
 		// Draw horizontal lines
 		for (let y = minY; y <= maxY + gridSize; y += gridSize) {
-			this.drawDottedLine(minX, y, maxX + gridSize, y, false, this.graphics);
+			this.drawDottedLine(minX, y, maxX + gridSize, y, false, 2, 3);
 		}
 	}
 
@@ -211,35 +199,65 @@ export class SocietyScene extends BaseScene {
 		x2: number,
 		y2: number,
 		isVertical: boolean,
-		graphics: Phaser.GameObjects.Graphics,
+		dotLength: number,
+		gapLength: number,
 	): void {
-		const dotLength = 2;
-		const gapLength = 1;
+		const gridSize = this.grid.getGridSize();
+		
+		// Enforce grid alignment invariant: all coordinates must be divisible by gridSize
+		if (x1 % gridSize !== 0) {
+			throw new Error(`Grid alignment violation: x1=${x1} is not divisible by gridSize=${gridSize}`);
+		}
+		if (y1 % gridSize !== 0) {
+			throw new Error(`Grid alignment violation: y1=${y1} is not divisible by gridSize=${gridSize}`);
+		}
+		if (x2 % gridSize !== 0) {
+			throw new Error(`Grid alignment violation: x2=${x2} is not divisible by gridSize=${gridSize}`);
+		}
+		if (y2 % gridSize !== 0) {
+			throw new Error(`Grid alignment violation: y2=${y2} is not divisible by gridSize=${gridSize}`);
+		}
+		
 		const segmentLength = dotLength + gapLength;
-
+		this.graphics.beginPath();
+		
 		if (isVertical) {
-			const totalLength = Math.abs(y2 - y1);
-			const segments = Math.floor(totalLength / segmentLength);
+			// Start from the first grid intersection at or after y1
+			const startIntersection = Math.ceil(y1 / gridSize) * gridSize;
+			const endIntersection = Math.floor(y2 / gridSize) * gridSize;
 
-			for (let i = 0; i < segments; i++) {
-				const segmentY = y1 + i * segmentLength;
-				graphics.beginPath();
-				graphics.moveTo(x1, segmentY);
-				graphics.lineTo(x1, segmentY + dotLength);
-				graphics.strokePath();
+			for (let y = startIntersection; y <= endIntersection; y += gridSize) {
+				// Draw dots along this grid line, aligned to segment boundaries
+				const localStart = 0; // Start from intersection
+				const localEnd = gridSize; // Go to next intersection
+				
+				for (let localPos = localStart; localPos < localEnd; localPos += segmentLength) {
+					const dotY = y + localPos;
+					if (dotY >= y1 && dotY + dotLength <= y2) {
+						this.graphics.moveTo(x1, dotY);
+						this.graphics.lineTo(x1, dotY + dotLength);
+					}
+				}
 			}
 		} else {
-			const totalLength = Math.abs(x2 - x1);
-			const segments = Math.floor(totalLength / segmentLength);
+			// horizontal - same logic but for X axis
+			const startIntersection = Math.ceil(x1 / gridSize) * gridSize;
+			const endIntersection = Math.floor(x2 / gridSize) * gridSize;
 
-			for (let i = 0; i < segments; i++) {
-				const segmentX = x1 + i * segmentLength;
-				graphics.beginPath();
-				graphics.moveTo(segmentX, y1);
-				graphics.lineTo(segmentX + dotLength, y1);
-				graphics.strokePath();
+			for (let x = startIntersection; x <= endIntersection; x += gridSize) {
+				const localStart = 0;
+				const localEnd = gridSize;
+				
+				for (let localPos = localStart; localPos < localEnd; localPos += segmentLength) {
+					const dotX = x + localPos;
+					if (dotX >= x1 && dotX + dotLength <= x2) {
+						this.graphics.moveTo(dotX, y1);
+						this.graphics.lineTo(dotX + dotLength, y1);
+					}
+				}
 			}
 		}
+		this.graphics.strokePath();
 	}
 
 	update(time: number, delta: number): void {

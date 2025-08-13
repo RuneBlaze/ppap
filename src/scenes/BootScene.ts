@@ -9,6 +9,7 @@ import { DrawUtils } from "@/draw-utils";
 import { loadFonts } from "@/fonts";
 import { Palette } from "@/palette";
 import { NoisePatternShader } from "@/shaders/NoisePatternShader";
+import { initializeIconSearch } from "@/ai/IconSearch";
 
 interface LoadingProgress {
 	totalAssets: number;
@@ -20,6 +21,7 @@ interface LoadingProgress {
 		| "fonts"
 		| "shaders"
 		| "textures"
+		| "ai_setup"
 		| "validation"
 		| "complete";
 	phaseProgress: number;
@@ -89,11 +91,15 @@ export class BootScene extends Phaser.Scene {
 			);
 			await this.generateDynamicTexturesPhase();
 
-			// Phase 4: Validate all assets
+			// Phase 4: Initialize AI modules
+			this.updateLoadingProgress("ai_setup", 0, "Initializing AI modules...");
+			await this.initializeAIPhase();
+
+			// Phase 5: Validate all assets
 			this.updateLoadingProgress("validation", 0, "Validating assets...");
 			await this.validateAllAssets();
 
-			// Phase 5: Complete
+			// Phase 6: Complete
 			this.updateLoadingProgress("complete", 100, "Ready!");
 
 			// Mark as ready and allow scene transitions
@@ -128,13 +134,15 @@ export class BootScene extends Phaser.Scene {
 		const fontCount = 7; // From fonts.ts
 		const shaderCount = 2; // Dither + Noise Pattern
 		const dynamicTextureCount = 1; // Background texture
+		const aiSetupCount = 1; // IconSearch
 
 		this.loadingProgress.totalAssets =
 			imageCount +
 			spritesheetCount +
 			fontCount +
 			shaderCount +
-			dynamicTextureCount;
+			dynamicTextureCount +
+			aiSetupCount;
 	}
 
 	private createLoadingDisplay() {
@@ -285,6 +293,20 @@ export class BootScene extends Phaser.Scene {
 		});
 	}
 
+	private async initializeAIPhase(): Promise<void> {
+		return new Promise((resolve) => {
+			try {
+				initializeIconSearch();
+				this.updateLoadingProgress("ai_setup", 100, "Icon search indexed");
+				resolve();
+			} catch (error) {
+				console.error("Failed to initialize AI modules:", error);
+				// Decide if this is a fatal error. For now, we'll continue.
+				resolve();
+			}
+		});
+	}
+
 	private async validateAllAssets(): Promise<void> {
 		return new Promise((resolve, reject) => {
 			const missingAssets: string[] = [];
@@ -356,9 +378,10 @@ export class BootScene extends Phaser.Scene {
 		const phaseWeights = {
 			images: 0.4,
 			spritesheets: 0.2,
-			fonts: 0.15,
-			shaders: 0.1,
-			textures: 0.1,
+			fonts: 0.1,
+			shaders: 0.05,
+			textures: 0.05,
+			ai_setup: 0.15,
 			validation: 0.04,
 			complete: 0.01,
 		};

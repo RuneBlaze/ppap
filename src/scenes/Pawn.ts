@@ -1,5 +1,4 @@
 import Phaser from "phaser";
-import type { Grid } from "../grid/Grid";
 import { Palette } from "../palette";
 import {
 	SHADER_KEY as HOVER3D_KEY,
@@ -11,8 +10,8 @@ export class Pawn extends Phaser.GameObjects.Container {
 
 	private pawnSprite!: Phaser.GameObjects.Image;
 	private shadowSprite!: Phaser.GameObjects.Image;
-	private grid: Grid;
 	private gridSize: number;
+	public readonly id: string;
 
 	// Shader integration
 	private hoverShader?: Phaser.Renderer.WebGL.Pipelines.PostFXPipeline;
@@ -28,8 +27,7 @@ export class Pawn extends Phaser.GameObjects.Container {
 	private isDragging = false;
 	private dragOffsetX = 0;
 	private dragOffsetY = 0;
-	private startDragX = 0;
-	private startDragY = 0;
+	// Removed unused start drag anchors due to decoupled state model
 
 	// Visual effects
 	private isHovered = false;
@@ -38,36 +36,40 @@ export class Pawn extends Phaser.GameObjects.Container {
 	private currentRotation = 0;
 	private shadowTween?: Phaser.Tweens.Tween;
 
-	// Grid position
-	private gridX: number;
-	private gridY: number;
+	// Committed grid-centered position (in world pixels)
+	private committedCenterX: number;
+	private committedCenterY: number;
 
 	constructor(
 		scene: Phaser.Scene,
-		x: number,
-		y: number,
-		grid: Grid,
-		portraitFrame: number = 0,
+		params: {
+			id: string;
+			intersectionX: number; // discrete grid intersection coords
+			intersectionY: number;
+			gridSize: number;
+			portraitFrame?: number;
+		},
 	) {
-		super(scene, x, y);
+		super(scene, 0, 0);
 
-		this.grid = grid;
-		this.gridSize = grid.getGridSize();
+		this.id = params.id;
+		this.gridSize = params.gridSize;
 
-		// Convert world position to grid coordinates
-		this.gridX = Math.round(x / this.gridSize) * this.gridSize;
-		this.gridY = Math.round(y / this.gridSize) * this.gridSize;
+		// Compute committed center position from intersection
+		this.committedCenterX = params.intersectionX + this.gridSize / 2;
+		this.committedCenterY = params.intersectionY + this.gridSize / 2;
 
 		// Set size for interaction
 		this.setSize(Pawn.PAWN_SIZE, Pawn.PAWN_SIZE);
 		this.setInteractive({ draggable: true });
 
-		this.createPawnElements(portraitFrame);
+		this.createPawnElements(params.portraitFrame ?? 0);
 		this.initializeHoverShader();
 		this.setupEventListeners();
 
-		// Initial position snap to grid
-		this.snapToGrid();
+		// Initial position at committed center
+		this.x = this.committedCenterX;
+		this.y = this.committedCenterY;
 
 		scene.add.existing(this);
 	}
@@ -92,7 +94,7 @@ export class Pawn extends Phaser.GameObjects.Container {
 		// Add subtle border
 		const borderGraphics = this.scene.add.graphics();
 		borderGraphics.lineStyle(1, Palette.WHITE.num, 0.8);
-		borderGraphics.strokeCircle(0, 0, Pawn.PAWN_SIZE / 2);
+		// borderGraphics.strokeCircle(0, 0, Pawn.PAWN_SIZE / 2);
 		this.add(borderGraphics);
 	}
 
@@ -129,8 +131,6 @@ export class Pawn extends Phaser.GameObjects.Container {
 
 	private onDragStart(pointer: Phaser.Input.Pointer): void {
 		this.isDragging = true;
-		this.startDragX = this.x;
-		this.startDragY = this.y;
 		this.dragOffsetX = pointer.x - this.x;
 		this.dragOffsetY = pointer.y - this.y;
 
@@ -166,18 +166,20 @@ export class Pawn extends Phaser.GameObjects.Container {
 		// Hide shadow
 		this.animateShadow(false);
 
-		// Try to snap to a valid grid position
-		const snapResult = this.trySnapToGrid(pointer.x, pointer.y);
+		// Propose a move based on nearest grid intersection; controller will decide.
+		const proposedIntersectionX =
+			Math.round(pointer.x / this.gridSize) * this.gridSize;
+		const proposedIntersectionY =
+			Math.round(pointer.y / this.gridSize) * this.gridSize;
 
-		if (snapResult.success) {
-			// Successful snap
-			this.smoothMoveTo(snapResult.x, snapResult.y);
-			this.gridX = snapResult.gridX;
-			this.gridY = snapResult.gridY;
-		} else {
-			// Return to original position
-			this.smoothMoveTo(this.startDragX, this.startDragY);
-		}
+		this.emit("moveRequested", {
+			pawnId: this.id,
+			to: { x: proposedIntersectionX, y: proposedIntersectionY },
+			from: {
+				x: this.committedCenterX - this.gridSize / 2,
+				y: this.committedCenterY - this.gridSize / 2,
+			},
+		});
 
 		// Reset rotation
 		this.scene.tweens.add({
@@ -206,52 +208,16 @@ export class Pawn extends Phaser.GameObjects.Container {
 		this.pawnSprite.clearTint();
 	}
 
-	private trySnapToGrid(
-		worldX: number,
-		worldY: number,
-	): {
-		success: boolean;
-		x: number;
-		y: number;
-		gridX: number;
-		gridY: number;
-	} {
-		// Convert world coordinates to grid coordinates
-		const gridX = Math.round(worldX / this.gridSize) * this.gridSize;
-		const gridY = Math.round(worldY / this.gridSize) * this.gridSize;
-
-		// Check if this position is within any active region
-		const cellKey = `${gridX},${gridY}`;
-		const isInActiveRegion = this.grid.getActiveCells().has(cellKey);
-
-		if (isInActiveRegion) {
-			// Check if position is already occupied by another pawn
-			const isOccupied = this.isPositionOccupied(gridX, gridY);
-
-			if (!isOccupied) {
-				return {
-					success: true,
-					x: gridX,
-					y: gridY,
-					gridX,
-					gridY,
-				};
-			}
-		}
-
-		return {
-			success: false,
-			x: this.startDragX,
-			y: this.startDragY,
-			gridX: this.gridX,
-			gridY: this.gridY,
-		};
+	// Controller API: animate to newly committed intersection and store as committed
+	public applyCommittedIntersection(intersectionX: number, intersectionY: number) {
+		this.committedCenterX = intersectionX + this.gridSize / 2;
+		this.committedCenterY = intersectionY + this.gridSize / 2;
+		this.smoothMoveTo(this.committedCenterX, this.committedCenterY);
 	}
 
-	private isPositionOccupied(_gridX: number, _gridY: number): boolean {
-		// Check if any other pawn is at this position
-		// This would need to be implemented by the scene managing multiple pawns
-		return false; // For now, allow any position
+	// Controller API: revert visual position to last committed center
+	public revertToCommitted() {
+		this.smoothMoveTo(this.committedCenterX, this.committedCenterY);
 	}
 
 	private smoothMoveTo(x: number, y: number): void {
@@ -272,8 +238,7 @@ export class Pawn extends Phaser.GameObjects.Container {
 		this.shadowTween = this.scene.tweens.add({
 			targets: this.shadowSprite,
 			alpha: show ? 0.5 : 0.0,
-			scaleX: show ? 1.2 : 1.0,
-			scaleY: show ? 1.2 : 1.0,
+			// Remove shadow scaling - container scaling already handles the "lift" effect
 			duration: 200,
 			ease: "Power2",
 			onComplete: () => {
@@ -284,11 +249,8 @@ export class Pawn extends Phaser.GameObjects.Container {
 		});
 	}
 
-	private snapToGrid(): void {
-		// Snap to current grid position
-		this.x = this.gridX;
-		this.y = this.gridY;
-	}
+	// Method kept for API completeness if needed later
+	// private snapToCommitted(): void {}
 
 	public update(time: number, delta: number): void {
 		// Smooth scale animation
@@ -301,10 +263,10 @@ export class Pawn extends Phaser.GameObjects.Container {
 			this.setScale(this.currentScale);
 		}
 
-		// Add subtle idle animation
+		// Add subtle idle animation around committed center
 		if (!this.isDragging && !this.isHovered) {
 			const idleOffset = Math.sin(time * 0.002) * 0.5;
-			this.y = this.gridY + idleOffset;
+			this.y = this.committedCenterY + idleOffset;
 		}
 
 		// ---------------- Shader uniform updates ----------------
@@ -356,23 +318,7 @@ export class Pawn extends Phaser.GameObjects.Container {
 		}
 	}
 
-	public getGridPosition(): { x: number; y: number } {
-		return { x: this.gridX, y: this.gridY };
-	}
-
-	public setGridPosition(gridX: number, gridY: number): void {
-		this.gridX = gridX;
-		this.gridY = gridY;
-		this.snapToGrid();
-	}
-
-	public setOccupancyChecker(
-		checker: (x: number, y: number, excludePawn?: Pawn) => boolean,
-	): void {
-		this.isPositionOccupied = (gridX: number, gridY: number) => {
-			return checker(gridX, gridY, this);
-		};
-	}
+	// Removed legacy grid APIs; UI is now fully decoupled from state
 
 	destroy(fromScene?: boolean): void {
 		if (this.shadowTween) {

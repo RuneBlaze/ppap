@@ -33,6 +33,7 @@ import {
 	BattleResolver,
 	type NarrativeOutcome,
 } from "./BattleResolver";
+import { findIcon } from "@/ai/IconSearch";
 
 // ---------------------------------------------------------------------------
 // Layout constants for the 427 × 240 battle canvas
@@ -261,13 +262,13 @@ export class BattleScene extends BaseScene {
 				id: "attack",
 				name: "Attack",
 				type: ActionType.ATTACK,
-				iconFrame: 0,
+				iconFrame: findIcon("attack sword"),
 			},
 			{
 				id: "defend",
 				name: "Defend",
 				type: ActionType.DEFEND,
-				iconFrame: 12,
+				iconFrame: findIcon("defend"),
 			},
 		];
 
@@ -278,7 +279,10 @@ export class BattleScene extends BaseScene {
 					id: skill.id,
 					name: skill.name,
 					type: ActionType.SKILL,
-					iconFrame: 24 + index, // Different icon per skill
+					iconFrame: findIcon(
+						skill.name,
+						24 + index,
+					), // Fallback to old icon
 					skillId: skill.id,
 					mpCost: skill.mpCost,
 					damage: skill.damage,
@@ -292,7 +296,7 @@ export class BattleScene extends BaseScene {
 			id: "potion",
 			name: "Potion",
 			type: ActionType.ITEM,
-			iconFrame: 36,
+			iconFrame: findIcon("potion heal item", 36),
 		});
 
 		return actions;
